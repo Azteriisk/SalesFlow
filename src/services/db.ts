@@ -7,6 +7,9 @@ export interface Profile {
   quarterlySummitTarget?: number;
   quarterlyPresidentsClubTarget?: number;
   soundEffectsEnabled?: boolean;
+  notificationsEnabled?: boolean;
+  appointmentRemindersEnabled?: boolean;
+  motivationRemindersEnabled?: boolean;
 }
 
 export interface AchievementBadge {
@@ -246,7 +249,10 @@ export class SalesFlowDB {
               fiscalYearStart: '2026-06-01',
               quarterlySummitTarget: 9000,
               quarterlyPresidentsClubTarget: 12000,
-              soundEffectsEnabled: true
+              soundEffectsEnabled: true,
+              notificationsEnabled: false,
+              appointmentRemindersEnabled: true,
+              motivationRemindersEnabled: true
             };
             this.saveProfile(defaultProfile).then(() => resolve(defaultProfile));
           }
@@ -669,7 +675,10 @@ export class SalesFlowDB {
           fiscalYearStart: '2026-06-01',
           quarterlySummitTarget: 9000,
           quarterlyPresidentsClubTarget: 12000,
-          soundEffectsEnabled: true
+          soundEffectsEnabled: true,
+          notificationsEnabled: false,
+          appointmentRemindersEnabled: true,
+          motivationRemindersEnabled: true
         };
         this.saveProfile(defaultProfile).then(() => resolve());
       };

@@ -35,6 +35,27 @@ Built with React, Vite, TypeScript, and standard CSS, it features a glassmorphic
 
 ---
 
+## PWA & Sync Capabilities
+
+SalesFlow is configured as a fully compliant Progressive Web Application (PWA) with the following features:
+
+### 1. Offline Sync & Rep-to-Rep Collaboration
+* **Connection Reconnect Sync**: The application automatically detects when connection status changes from offline to online and fires a background synchronization event (`syncDataWithCloud`) to upload local visit logs and pull updates.
+* **Rep Shared Notes**: Allows reps working overlapping regions or shared customer accounts to see each other's visit notes. When team updates are pulled down, they are highlighted with a **Team Shared** visual badge in the pipeline drawer.
+* **Service Worker Background Sync**: Registers PWA Background Sync (`salesflow-sync`) and Periodic Sync (`salesflow-periodic-sync` scheduled every 12 hours) to ensure updates are pushed/pulled even if the app is closed.
+
+### 2. Intelligent Notifications
+* **15-Minute Appointment Reminders**: Automatically parses appointment details from call/visit logs (`Appointment set for YYYY-MM-DD at HH:MM`) and schedules browser notifications to fire 15 minutes before the appointment start time.
+* **Daily Goal Motivation Alerts**: Around 3:30 PM, the notification engine checks the rep's daily OSV target against their completed visits for the day. If they are behind schedule, a motivational message is dispatched to encourage hitting their target.
+* **Settings Panel Toggles**: Users can toggle browser notifications on/off in the Settings screen, which requests browser permissions dynamically.
+
+### 3. PWA Screenshot Assets
+To ensure the app passes PWA manifest validation and is ready for app store indexing, place your screenshots in the following directories:
+* **Widescreen Screenshot**: Place a `1280x720` PNG image at `public/screenshots/desktop.png`.
+* **Mobile Screenshot**: Place a `720x1280` PNG image at `public/screenshots/mobile.png`.
+
+---
+
 ## Technical Stack
 
 - **Core**: React 19, Vite 8, TypeScript, Vanilla CSS.
@@ -79,3 +100,18 @@ You can preview the production build locally:
 ```bash
 npm run preview
 ```
+
+---
+
+## Priority Roadmap
+
+The following high-priority features are scheduled for the next development iteration:
+
+1. **Clerk Authentication Integration** 🔑
+   * Replace mock user profiles with robust Clerk auth.
+   * Provide secure, rep-specific pipeline data views and user access control.
+   
+2. **Enhanced Data Security** 🔒
+   * Secure local IndexedDB operations to prevent raw inspection.
+   * Implement end-to-end encryption for sync payloads transferred during background sync.
+

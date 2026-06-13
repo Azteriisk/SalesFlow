@@ -19,6 +19,8 @@ import {
 } from '../services/db';
 import type { Profile, WeeklyPlan, Lead } from '../services/db';
 import { INDUSTRY_CATEGORIES } from '../services/places';
+import { requestNotificationPermission } from '../services/notifications';
+import { syncDataWithCloud, getLastSyncedTime } from '../services/sync';
 
 interface SettingsProps {
   profile: Profile;
@@ -56,7 +58,14 @@ const Settings: React.FC<SettingsProps> = ({
   const [searchRadius, setSearchRadius] = useState<number>(profile.searchRadiusKm);
   const [activeIndustries, setActiveIndustries] = useState<string[]>(profile.industryFilters);
   const [soundEffectsEnabled, setSoundEffectsEnabled] = useState<boolean>(profile.soundEffectsEnabled ?? true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(profile.notificationsEnabled ?? false);
+  const [appointmentRemindersEnabled, setAppointmentRemindersEnabled] = useState<boolean>(profile.appointmentRemindersEnabled ?? true);
+  const [motivationRemindersEnabled, setMotivationRemindersEnabled] = useState<boolean>(profile.motivationRemindersEnabled ?? true);
   
+  // Sync status
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [lastSynced, setLastSynced] = useState<string>(getLastSyncedTime());
+
   // Weekly targets state
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
 
@@ -146,10 +155,43 @@ const Settings: React.FC<SettingsProps> = ({
       fiscalYearStart,
       quarterlySummitTarget: Number(quarterlySummitTarget),
       quarterlyPresidentsClubTarget: Number(quarterlyPresidentsClubTarget),
-      soundEffectsEnabled
+      soundEffectsEnabled,
+      notificationsEnabled,
+      appointmentRemindersEnabled,
+      motivationRemindersEnabled
     };
     onProfileUpdate(updated);
     alert('Profile settings saved successfully.');
+  };
+
+  const handleToggleNotifications = async (checked: boolean) => {
+    if (checked) {
+      const granted = await requestNotificationPermission();
+      setNotificationsEnabled(granted);
+      if (!granted) {
+        alert('Notification permission was denied by the browser. Please enable them in your browser site settings.');
+      }
+    } else {
+      setNotificationsEnabled(false);
+    }
+  };
+
+  const handleSyncNow = async () => {
+    setSyncStatus('syncing');
+    const result = await syncDataWithCloud();
+    if (result.success) {
+      setSyncStatus('success');
+      setLastSynced(getLastSyncedTime());
+      if (result.pulledCount > 0) {
+        alert(`Cloud synchronization complete! Pulled ${result.pulledCount} updates from other team members on shared accounts.`);
+      } else {
+        alert('Cloud synchronization complete! All offline logs are fully up to date.');
+      }
+    } else {
+      setSyncStatus('error');
+      alert('Synchronization failed. Please check network connectivity.');
+    }
+    setTimeout(() => setSyncStatus('idle'), 3000);
   };
 
   const handleToggleIndustry = (id: string) => {
@@ -682,6 +724,57 @@ const Settings: React.FC<SettingsProps> = ({
           </div>
         </div>
 
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid hsl(var(--border-muted))', paddingTop: '0.85rem', marginTop: '0.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input 
+              type="checkbox" 
+              id="notifications"
+              style={{ width: '16px', height: '16px', accentColor: 'hsl(var(--primary))', cursor: 'pointer' }}
+              checked={notificationsEnabled}
+              onChange={(e) => handleToggleNotifications(e.target.checked)}
+            />
+            <label htmlFor="notifications" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--text-primary))', cursor: 'pointer' }}>
+              Enable Browser Notifications
+            </label>
+          </div>
+          
+          {notificationsEnabled && (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: '0.4rem', 
+              paddingLeft: '1.5rem', 
+              animation: 'scaleUp 0.2s ease-out' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input 
+                  type="checkbox" 
+                  id="apptReminders"
+                  style={{ width: '14px', height: '14px', accentColor: 'hsl(var(--primary))', cursor: 'pointer' }}
+                  checked={appointmentRemindersEnabled}
+                  onChange={(e) => setAppointmentRemindersEnabled(e.target.checked)}
+                />
+                <label htmlFor="apptReminders" style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', cursor: 'pointer' }}>
+                  15-Minute Appointment Reminders
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input 
+                  type="checkbox" 
+                  id="motivationReminders"
+                  style={{ width: '14px', height: '14px', accentColor: 'hsl(var(--primary))', cursor: 'pointer' }}
+                  checked={motivationRemindersEnabled}
+                  onChange={(e) => setMotivationRemindersEnabled(e.target.checked)}
+                />
+                <label htmlFor="motivationReminders" style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))', cursor: 'pointer' }}>
+                  Daily OSV Goal EOD Motivation Alerts
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid hsl(var(--border-muted))', paddingTop: '0.85rem', marginTop: '0.4rem' }}>
           <input 
             type="checkbox" 
@@ -769,6 +862,31 @@ const Settings: React.FC<SettingsProps> = ({
           </button>
         </div>
       )}
+
+      {/* 3. Cloud Sync Panel */}
+      <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid hsl(var(--border-muted))', paddingBottom: '0.5rem' }}>
+          <Briefcase style={{ width: '18px', height: '18px', color: 'hsl(var(--primary))' }} />
+          <span style={{ fontFamily: 'Outfit', fontWeight: 600 }}>Cloud Data Synchronization</span>
+          <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', marginLeft: 'auto' }}>
+            Last Synced: {lastSynced}
+          </span>
+        </div>
+        
+        <p style={{ fontSize: '0.82rem', color: 'hsl(var(--text-secondary))', lineHeight: '1.4' }}>
+          SalesFlow is fully offline-first. Syncing uploads your local visits, calls, and planner notes to the shared cloud database, and downloads updates from other team members working the same accounts.
+        </p>
+
+        <button 
+          type="button" 
+          className="btn-primary" 
+          disabled={syncStatus === 'syncing'}
+          onClick={handleSyncNow}
+          style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+        >
+          <span>{syncStatus === 'syncing' ? 'Syncing...' : 'Sync Now'}</span>
+        </button>
+      </div>
 
       {/* 3. Sold Performance Tracker Panel */}
       <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

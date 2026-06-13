@@ -10,6 +10,15 @@ import {
 } from 'lucide-react';
 import { dbService } from './services/db';
 import type { Profile } from './services/db';
+import { 
+  checkAndTriggerAppointmentReminders, 
+  checkDailyOsvMotivationAlert 
+} from './services/notifications';
+import { 
+  registerBackgroundSync, 
+  registerPeriodicSync, 
+  syncDataWithCloud 
+} from './services/sync';
 
 // Component imports
 import Dashboard from './components/Dashboard';
@@ -33,9 +42,19 @@ const App: React.FC = () => {
   });
   const [isSimulatedLoc, setIsSimulatedLoc] = useState<boolean>(false);
 
-  // Monitor online status
+  // Monitor online status & auto-sync when online
   useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
+    const handleOnline = () => {
+      setIsOffline(false);
+      // Auto-sync offline changes with cloud when connection returns
+      syncDataWithCloud().then(result => {
+        if (result.success && result.pulledCount > 0) {
+          console.log(`Auto-sync success: Pulled ${result.pulledCount} updates.`);
+        }
+      }).catch(err => {
+        console.error('Auto-sync failed on reconnect:', err);
+      });
+    };
     const handleOffline = () => setIsOffline(true);
 
     window.addEventListener('online', handleOnline);
@@ -61,6 +80,30 @@ const App: React.FC = () => {
     };
     initDb();
   }, []);
+
+  // Register background sync & periodic sync when DB is ready
+  useEffect(() => {
+    if (dbInitialized) {
+      registerBackgroundSync();
+      registerPeriodicSync();
+    }
+  }, [dbInitialized]);
+
+  // Start periodic scanners for reminders and motivation alerts
+  useEffect(() => {
+    if (!dbInitialized) return;
+
+    // Run immediately on startup
+    checkAndTriggerAppointmentReminders();
+    checkDailyOsvMotivationAlert();
+
+    const interval = setInterval(() => {
+      checkAndTriggerAppointmentReminders();
+      checkDailyOsvMotivationAlert();
+    }, 60000); // Check every 60 seconds
+
+    return () => clearInterval(interval);
+  }, [dbInitialized]);
 
   // Monitor location
   useEffect(() => {

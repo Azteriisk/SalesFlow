@@ -662,6 +662,28 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
                     </span>
                   )}
                 </div>
+                {selectedLead.notes && (
+                  <div style={{ 
+                    marginTop: '0.75rem', 
+                    padding: '0.75rem', 
+                    background: 'hsl(var(--bg-tertiary))', 
+                    borderRadius: '8px', 
+                    borderLeft: selectedLead.notes.includes('[Team Sync Update]') ? '3px solid hsl(var(--primary))' : '3px solid hsl(var(--border-muted))',
+                    fontSize: '0.8rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 600, color: selectedLead.notes.includes('[Team Sync Update]') ? 'hsl(var(--primary))' : 'hsl(var(--text-secondary))', marginBottom: '0.3rem' }}>
+                      <span>📋 Account Notes</span>
+                      {selectedLead.notes.includes('[Team Sync Update]') && (
+                        <span style={{ fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', background: 'hsl(var(--primary) / 0.15)', color: 'hsl(var(--primary))', fontWeight: 700 }}>
+                          TEAM SHARED
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ margin: 0, whiteSpace: 'pre-line', color: 'hsl(var(--text-primary))', lineHeight: '1.4' }}>
+                      {selectedLead.notes}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Sub-Tabs for Drawer Option Pages */}
@@ -705,8 +727,15 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
                         {/* Visits */}
                         {visitLogs.map(v => (
                           <div key={v.id} style={{ fontSize: '0.78rem', borderBottom: '1px dashed hsl(var(--border-muted))', paddingBottom: '0.3rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'hsl(var(--text-muted))' }}>
-                              <span>🚶 OSV Logged</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'hsl(var(--text-muted))', alignItems: 'center' }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                🚶 OSV Logged
+                                {v.id.startsWith('team-sync-') && (
+                                  <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: '3px', background: 'hsl(var(--primary) / 0.15)', color: 'hsl(var(--primary))', fontWeight: 600 }}>
+                                    Team Shared
+                                  </span>
+                                )}
+                              </span>
                               <span>{new Date(v.timestamp).toLocaleDateString()}</span>
                             </div>
                             <p style={{ color: 'hsl(var(--text-secondary))', marginTop: '0.1rem' }}>
