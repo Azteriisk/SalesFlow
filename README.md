@@ -125,3 +125,7 @@ The following high-priority features are scheduled for the next development iter
    * **Quota & Target Governance**: Enable managers to set daily/weekly quotas for reps, with toggles to decide whether reps manage their own goals or have targets locked by management (with baseline goal templates customizable by company).
    * **Comprehensive Team Analytics**: Pull aggregate multi-user reports, team leaderboards, comparison graphs (target vs. actual), and track overlapping regions.
 
+5. **Discovery Tab GPS Drift & API Quota Protection** 📍
+   * **The Problem**: On mobile devices, `navigator.geolocation.watchPosition` triggers continuous state updates due to minor GPS coordinate fluctuations. This causes the Discovery Swiper to launch infinite API calls to Google Places, draining quota and causing UI loading loops.
+   * **The Solution**: Prevent refetching unless the representative has moved a significant threshold distance (e.g., >250 meters) from the coordinates of the last API search.
+
