@@ -312,7 +312,7 @@ export class SalesFlowDB {
     });
   }
 
-  // --- Decisions CRUD (Tinder swiped results) ---
+  // --- Decisions CRUD (Discover swipe results) ---
   async saveDecision(decision: RecommendationDecision): Promise<void> {
     await this.init();
     return new Promise((resolve, reject) => {

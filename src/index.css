@@ -203,7 +203,7 @@ h1, h2, h3, h4, h5, h6 {
   transform: scale(0.9);
 }
 
-/* Tinder Swipe discover screen */
+/* Discover Swipe screen */
 .swipe-screen-container {
   display: flex;
   flex-direction: column;

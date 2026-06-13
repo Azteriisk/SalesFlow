@@ -459,7 +459,7 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
         Discover prospects
       </h2>
 
-      {/* Tinder Deck */}
+      {/* Discover Swiper Deck */}
       <div className="swiper-deck">
         {/* Next card in stack (static/background card) */}
         {currentIndex + 1 < candidates.length && (
