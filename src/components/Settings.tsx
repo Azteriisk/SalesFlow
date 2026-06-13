@@ -55,6 +55,7 @@ const Settings: React.FC<SettingsProps> = ({
   const [repName, setRepName] = useState<string>(profile.repName);
   const [searchRadius, setSearchRadius] = useState<number>(profile.searchRadiusKm);
   const [activeIndustries, setActiveIndustries] = useState<string[]>(profile.industryFilters);
+  const [soundEffectsEnabled, setSoundEffectsEnabled] = useState<boolean>(profile.soundEffectsEnabled ?? true);
   
   // Weekly targets state
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
@@ -144,7 +145,8 @@ const Settings: React.FC<SettingsProps> = ({
       industryFilters: activeIndustries,
       fiscalYearStart,
       quarterlySummitTarget: Number(quarterlySummitTarget),
-      quarterlyPresidentsClubTarget: Number(quarterlyPresidentsClubTarget)
+      quarterlyPresidentsClubTarget: Number(quarterlyPresidentsClubTarget),
+      soundEffectsEnabled
     };
     onProfileUpdate(updated);
     alert('Profile settings saved successfully.');
@@ -678,6 +680,19 @@ const Settings: React.FC<SettingsProps> = ({
               />
             </div>
           </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid hsl(var(--border-muted))', paddingTop: '0.85rem', marginTop: '0.4rem' }}>
+          <input 
+            type="checkbox" 
+            id="soundEffects"
+            style={{ width: '16px', height: '16px', accentColor: 'hsl(var(--primary))', cursor: 'pointer' }}
+            checked={soundEffectsEnabled}
+            onChange={(e) => setSoundEffectsEnabled(e.target.checked)}
+          />
+          <label htmlFor="soundEffects" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--text-primary))', cursor: 'pointer' }}>
+            Enable Sound Effects (Confetti, Goal Achievements, Swipes)
+          </label>
         </div>
 
         <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-start' }}>

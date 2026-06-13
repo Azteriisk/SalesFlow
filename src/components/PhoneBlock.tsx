@@ -10,8 +10,10 @@ import {
   DollarSign,
   Camera
 } from 'lucide-react';
-import { dbService } from '../services/db';
+import { dbService, getWeekId } from '../services/db';
 import type { Lead, Call, Visit, LeadStatus } from '../services/db';
+import { triggerConfetti } from '../services/confetti';
+import { playSound } from '../services/sound';
 
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -64,6 +66,7 @@ const PhoneBlock: React.FC = () => {
   const [dealValue, setDealValue] = useState<number>(0);
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [goalAchievedModal, setGoalAchievedModal] = useState<string | null>(null);
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -179,6 +182,7 @@ const PhoneBlock: React.FC = () => {
   };
 
   const handleSkip = () => {
+    playSound('swipe');
     if (queue.length <= 1) return;
     
     // Rotate queue
@@ -225,6 +229,8 @@ const PhoneBlock: React.FC = () => {
       images: attachedImages.length > 0 ? attachedImages : undefined
     };
 
+    const achievementsBefore = await dbService.checkAchievementsBeforeActivity();
+
     // Save Call report
     await dbService.addCall(newCall);
 
@@ -253,6 +259,42 @@ const PhoneBlock: React.FC = () => {
     }
 
     await dbService.saveLead(updatedLead);
+
+    // Check targets after
+    const now = new Date();
+    const currentWeekId = getWeekId(now);
+    const plan = await dbService.getWeeklyPlan(currentWeekId);
+    
+    const allVisitsAfter = await dbService.getAllVisits();
+    const allCallsAfter = await dbService.getAllCalls();
+    
+    const weeklyApptTarget = 
+      plan.targets.monday.appointments + 
+      plan.targets.tuesday.appointments + 
+      plan.targets.wednesday.appointments + 
+      plan.targets.thursday.appointments + 
+      plan.targets.friday.appointments;
+      
+    const apptsFromVisitsWeekAfter = allVisitsAfter.filter(v => v.timestamp >= plan.startDate && v.outcome === 'appointment_set').length;
+    const apptsFromCallsWeekAfter = allCallsAfter.filter(c => c.timestamp >= plan.startDate && c.outcome === 'appointment_set').length;
+    const apptsWeekAfter = apptsFromVisitsWeekAfter + apptsFromCallsWeekAfter;
+
+    // Check newly met
+    let modalMsg: string | null = null;
+
+    if (!achievementsBefore.weeklyApptMetBefore && weeklyApptTarget > 0 && apptsWeekAfter >= weeklyApptTarget) {
+      modalMsg = `🏆 Weekly Presentations Goal Achieved! (${apptsWeekAfter}/${weeklyApptTarget} set)`;
+    }
+
+    if (modalMsg) {
+      triggerConfetti();
+      setGoalAchievedModal(modalMsg);
+      setTimeout(() => {
+        setGoalAchievedModal(null);
+      }, 3500);
+    } else {
+      playSound('click');
+    }
 
     // Close Modal
     setShowDisposition(false);
@@ -695,6 +737,55 @@ const PhoneBlock: React.FC = () => {
               alt="Expanded view" 
               style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: '8px', border: '2px solid hsl(var(--border-muted))', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} 
             />
+          </div>
+        </div>
+      )}
+
+      {goalAchievedModal && (
+        <div 
+          className="modal-overlay" 
+          style={{ 
+            zIndex: 10000, 
+            background: 'rgba(0,0,0,0.75)', 
+            backdropFilter: 'blur(10px)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            position: 'fixed',
+            inset: 0
+          }}
+        >
+          <div 
+            className="glass-card" 
+            style={{ 
+              width: '90%', 
+              maxWidth: '400px', 
+              padding: '2.5rem 2rem', 
+              textAlign: 'center', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: '1rem',
+              animation: 'scaleUp 0.3s ease-out',
+              border: '2px solid hsl(var(--primary))',
+              boxShadow: '0 10px 40px rgba(142, 192, 124, 0.25)',
+              position: 'relative'
+            }}
+          >
+            <div style={{ fontSize: '3.5rem', animation: 'bounce-slow 2s infinite ease-in-out' }}>🎉</div>
+            <h3 style={{ fontFamily: 'Outfit', fontSize: '1.5rem', color: 'hsl(var(--primary))', margin: 0 }}>
+              Goal Achieved!
+            </h3>
+            <p style={{ fontSize: '1.05rem', color: 'hsl(var(--text-secondary))', margin: 0, fontWeight: 500, lineHeight: '1.4' }}>
+              {goalAchievedModal}
+            </p>
+            <button 
+              className="btn-primary" 
+              onClick={() => setGoalAchievedModal(null)}
+              style={{ marginTop: '0.75rem', width: '100%', maxWidth: '140px', padding: '0.5rem 1rem' }}
+            >
+              Awesome
+            </button>
           </div>
         </div>
       )}

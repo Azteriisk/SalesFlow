@@ -19,8 +19,10 @@ import {
   Trash2,
   Camera
 } from 'lucide-react';
-import { dbService } from '../services/db';
+import { dbService, getWeekId } from '../services/db';
 import type { Lead, LeadStatus, Visit, Call, Quote, EmailLog, Profile } from '../services/db';
+import { triggerConfetti } from '../services/confetti';
+import { playSound } from '../services/sound';
 
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -87,6 +89,7 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
   const [dealValue, setDealValue] = useState<number>(0);
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [goalAchievedModal, setGoalAchievedModal] = useState<string | null>(null);
   
   // Appointment sub-state
   const [apptDate, setApptDate] = useState<string>('');
@@ -258,6 +261,8 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
       images: attachedImages.length > 0 ? attachedImages : undefined
     };
 
+    const achievementsBefore = await dbService.checkAchievementsBeforeActivity();
+
     // Save visit log
     await dbService.addVisit(newVisit);
 
@@ -285,6 +290,68 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
     }
 
     await dbService.saveLead(updatedLead);
+
+    // Check targets after
+    const now = new Date();
+    const currentWeekId = getWeekId(now);
+    const plan = await dbService.getWeeklyPlan(currentWeekId);
+    
+    const todayStart = new Date();
+    todayStart.setHours(0,0,0,0);
+    const todayStartTs = todayStart.getTime();
+    
+    const allVisitsAfter = await dbService.getAllVisits();
+    const allCallsAfter = await dbService.getAllCalls();
+    
+    const days: ('sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday')[] = [
+      'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'
+    ];
+    const currentDay = days[now.getDay()];
+    
+    const dailyOsvTarget = plan.targets[currentDay]?.osv ?? 0;
+    
+    const weeklyOsvTarget = 
+      plan.targets.monday.osv + 
+      plan.targets.tuesday.osv + 
+      plan.targets.wednesday.osv + 
+      plan.targets.thursday.osv + 
+      plan.targets.friday.osv;
+      
+    const weeklyApptTarget = 
+      plan.targets.monday.appointments + 
+      plan.targets.tuesday.appointments + 
+      plan.targets.wednesday.appointments + 
+      plan.targets.thursday.appointments + 
+      plan.targets.friday.appointments;
+      
+    const osvTodayAfter = allVisitsAfter.filter(v => v.timestamp >= todayStartTs).length;
+    const osvWeekAfter = allVisitsAfter.filter(v => v.timestamp >= plan.startDate).length;
+    
+    const apptsFromVisitsWeekAfter = allVisitsAfter.filter(v => v.timestamp >= plan.startDate && v.outcome === 'appointment_set').length;
+    const apptsFromCallsWeekAfter = allCallsAfter.filter(c => c.timestamp >= plan.startDate && c.outcome === 'appointment_set').length;
+    const apptsWeekAfter = apptsFromVisitsWeekAfter + apptsFromCallsWeekAfter;
+
+    // Check newly met
+    let modalMsg: string | null = null;
+
+    if (!achievementsBefore.weeklyApptMetBefore && weeklyApptTarget > 0 && apptsWeekAfter >= weeklyApptTarget) {
+      modalMsg = `🏆 Weekly Presentations Goal Achieved! (${apptsWeekAfter}/${weeklyApptTarget} set)`;
+    } else if (!achievementsBefore.weeklyOsvMetBefore && weeklyOsvTarget > 0 && osvWeekAfter >= weeklyOsvTarget) {
+      modalMsg = `🏆 Weekly OSV Target Achieved! (${osvWeekAfter}/${weeklyOsvTarget} visited)`;
+    } else if (!achievementsBefore.dailyOsvMetBefore && dailyOsvTarget > 0 && osvTodayAfter >= dailyOsvTarget) {
+      modalMsg = `🏆 Daily OSV Target Achieved! (${osvTodayAfter}/${dailyOsvTarget} visited)`;
+    }
+
+    if (modalMsg) {
+      triggerConfetti();
+      setGoalAchievedModal(modalMsg);
+      setTimeout(() => {
+        setGoalAchievedModal(null);
+      }, 3500);
+    } else {
+      playSound('click');
+    }
+
     setAttachedImages([]);
     setSelectedLead(null);
     loadLeads();
@@ -1175,6 +1242,55 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
               alt="Expanded view" 
               style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: '8px', border: '2px solid hsl(var(--border-muted))', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} 
             />
+          </div>
+        </div>
+      )}
+
+      {goalAchievedModal && (
+        <div 
+          className="modal-overlay" 
+          style={{ 
+            zIndex: 10000, 
+            background: 'rgba(0,0,0,0.75)', 
+            backdropFilter: 'blur(10px)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            position: 'fixed',
+            inset: 0
+          }}
+        >
+          <div 
+            className="glass-card" 
+            style={{ 
+              width: '90%', 
+              maxWidth: '400px', 
+              padding: '2.5rem 2rem', 
+              textAlign: 'center', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: '1rem',
+              animation: 'scaleUp 0.3s ease-out',
+              border: '2px solid hsl(var(--primary))',
+              boxShadow: '0 10px 40px rgba(142, 192, 124, 0.25)',
+              position: 'relative'
+            }}
+          >
+            <div style={{ fontSize: '3.5rem', animation: 'bounce-slow 2s infinite ease-in-out' }}>🎉</div>
+            <h3 style={{ fontFamily: 'Outfit', fontSize: '1.5rem', color: 'hsl(var(--primary))', margin: 0 }}>
+              Goal Achieved!
+            </h3>
+            <p style={{ fontSize: '1.05rem', color: 'hsl(var(--text-secondary))', margin: 0, fontWeight: 500, lineHeight: '1.4' }}>
+              {goalAchievedModal}
+            </p>
+            <button 
+              className="btn-primary" 
+              onClick={() => setGoalAchievedModal(null)}
+              style={{ marginTop: '0.75rem', width: '100%', maxWidth: '140px', padding: '0.5rem 1rem' }}
+            >
+              Awesome
+            </button>
           </div>
         </div>
       )}

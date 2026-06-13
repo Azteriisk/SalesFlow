@@ -7,14 +7,16 @@ import {
   AlertCircle, 
   TrendingUp, 
   Activity,
-  DollarSign
+  DollarSign,
+  Award
 } from 'lucide-react';
 import { 
   dbService, 
   getWeekId 
 } from '../services/db';
-import type { Lead, WeeklyPlan } from '../services/db';
+import type { Lead, WeeklyPlan, AchievementBadge } from '../services/db';
 import { loadGoogleMapsScript } from '../services/places';
+import TodoList from './TodoList';
 
 interface DashboardProps {
   location: { latitude: number; longitude: number };
@@ -26,6 +28,7 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [badges, setBadges] = useState<AchievementBadge[]>([]);
 
   // Daily totals
   const [todayOsv, setTodayOsv] = useState<number>(0);
@@ -214,6 +217,10 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
         const fyLength = boundaries.fyEnd - boundaries.fyStart;
         const fyElapsed = nowTs - boundaries.fyStart;
         setFYDaysPercent(Math.min(100, Math.max(0, Math.round((fyElapsed / fyLength) * 100))));
+
+        // Fetch achievement badges
+        const badgesData = await dbService.getProfileBadges(profile);
+        setBadges(badgesData);
 
       } catch (err) {
         console.error('Error loading dashboard stats', err);
@@ -517,6 +524,89 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
           </div>
         </div>
       </div>
+
+      {/* Achievement Badges Panel */}
+      <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid hsl(var(--border-muted))', paddingBottom: '0.5rem' }}>
+          <Award style={{ width: '18px', height: '18px', color: 'hsl(var(--warning))' }} />
+          <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1rem' }}>
+            Achievement Badges
+          </span>
+          <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', marginLeft: 'auto' }}>
+            {badges.filter(b => b.unlocked).length} / {badges.length} Unlocked
+          </span>
+        </div>
+
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
+          gap: '1rem',
+          marginTop: '0.5rem'
+        }}>
+          {badges.map(badge => (
+            <div 
+              key={badge.id}
+              className={`glass-card ${badge.unlocked ? 'badge-unlocked' : ''}`}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '1rem 0.75rem',
+                gap: '0.5rem',
+                opacity: badge.unlocked ? 1 : 0.45,
+                filter: badge.unlocked ? 'none' : 'grayscale(100%)',
+                borderColor: badge.unlocked ? 'hsl(var(--primary))' : 'hsl(var(--border-muted))',
+                boxShadow: badge.unlocked ? '0 0 12px hsl(var(--primary) / 0.15)' : 'none',
+                position: 'relative',
+                cursor: 'help'
+              }}
+              title={badge.description}
+            >
+              {/* Badge Icon Circular wrapper */}
+              <div 
+                style={{
+                  width: '54px',
+                  height: '54px',
+                  borderRadius: '50%',
+                  background: badge.unlocked 
+                    ? 'radial-gradient(circle, hsl(var(--primary) / 0.2) 0%, hsl(var(--bg-secondary)) 70%)'
+                    : 'hsl(var(--bg-secondary))',
+                  border: `2px solid ${badge.unlocked ? 'hsl(var(--primary))' : 'hsl(var(--border-muted))'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '2rem',
+                  filter: badge.unlocked ? 'drop-shadow(0 0 4px hsl(var(--primary) / 0.4))' : 'none'
+                }}
+              >
+                {badge.icon}
+              </div>
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--text-primary))' }}>
+                {badge.title}
+              </span>
+              <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', fontWeight: 500 }}>
+                {badge.progressText}
+              </span>
+              {!badge.unlocked && (
+                <div style={{ width: '100%', background: 'hsl(var(--bg-secondary))', height: '4px', borderRadius: '2px', overflow: 'hidden', marginTop: '0.2rem' }}>
+                  <div 
+                    style={{ 
+                      width: `${badge.progressPercent}%`, 
+                      background: 'hsl(var(--primary))', 
+                      height: '100%', 
+                      borderRadius: '2px' 
+                    }} 
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Task Planner Panel */}
+      <TodoList />
 
       {/* Map and targets grid */}
       <div className="dashboard-grid">

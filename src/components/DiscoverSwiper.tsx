@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Radar, Check, X, Ban, Compass, AlertCircle, MapPin, Phone, Globe } from 'lucide-react';
 import { dbService } from '../services/db';
 import type { Lead, Profile, RecommendationDecision } from '../services/db';
+import { playSound } from '../services/sound';
 import { searchNearbyPlaces, getPlaceDetails } from '../services/places';
 import type { PlaceResult } from '../services/places';
 
@@ -304,6 +305,8 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
 
   const handleDecision = async (status: 'liked' | 'disliked_irrelevant' | 'never_visit') => {
     if (!activeCard) return;
+
+    playSound('swipe');
 
     // Capture decided card reference
     const decidedCard = activeCard;

@@ -6,6 +6,30 @@ export interface Profile {
   fiscalYearStart?: string;
   quarterlySummitTarget?: number;
   quarterlyPresidentsClubTarget?: number;
+  soundEffectsEnabled?: boolean;
+}
+
+export interface AchievementBadge {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  unlocked: boolean;
+  progressText: string;
+  progressPercent: number;
+}
+
+export interface TodoItem {
+  id: string;
+  text: string;
+  notes?: string;
+  dueDate?: string; // YYYY-MM-DD
+  period: 'day' | 'week' | 'later';
+  priority: 'low' | 'medium' | 'high';
+  completed: boolean;
+  leadId?: string; // Optional linked lead ID
+  leadName?: string; // Cached lead name for display
+  createdAt: number;
 }
 
 export type LeadStatus = 'pending_osv' | 'phone_block' | 'appointment_set' | 'sold' | 'no_value' | 'never_visit' | 'snoozed_osv';
@@ -115,7 +139,7 @@ export function getWeekId(d: Date): string {
 }
 
 const DB_NAME = 'SalesFlowDB';
-const DB_VERSION = 3; // Incremented version to support Quotes, EmailLogs, Leads Sold status, deal values, and weekly targets
+const DB_VERSION = 4; // Incremented version to support general Todos list store
 
 export class SalesFlowDB {
   private db: IDBDatabase | null = null;
@@ -183,6 +207,13 @@ export class SalesFlowDB {
           emailsStore.createIndex('leadId', 'leadId', { unique: false });
           emailsStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
+
+        // Todos store
+        if (!db.objectStoreNames.contains('todos')) {
+          const todosStore = db.createObjectStore('todos', { keyPath: 'id' });
+          todosStore.createIndex('dueDate', 'dueDate', { unique: false });
+          todosStore.createIndex('leadId', 'leadId', { unique: false });
+        }
       };
     });
 
@@ -214,7 +245,8 @@ export class SalesFlowDB {
               searchRadiusKm: 15,
               fiscalYearStart: '2026-06-01',
               quarterlySummitTarget: 9000,
-              quarterlyPresidentsClubTarget: 12000
+              quarterlyPresidentsClubTarget: 12000,
+              soundEffectsEnabled: true
             };
             this.saveProfile(defaultProfile).then(() => resolve(defaultProfile));
           }
@@ -568,12 +600,59 @@ export class SalesFlowDB {
     });
   }
 
+  // --- Todos CRUD ---
+  async getTodos(): Promise<TodoItem[]> {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.getStore('todos', 'readonly');
+        const request = store.getAll();
+        request.onsuccess = () => {
+          const list = request.result || [];
+          list.sort((a, b) => b.createdAt - a.createdAt);
+          resolve(list);
+        };
+        request.onerror = () => reject(request.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async saveTodo(todo: TodoItem): Promise<void> {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.getStore('todos', 'readwrite');
+        const request = store.put(todo);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async deleteTodo(id: string): Promise<void> {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.getStore('todos', 'readwrite');
+        const request = store.delete(id);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
   // --- Reset database utility ---
   async clearAllData(): Promise<void> {
     await this.init();
     return new Promise((resolve, reject) => {
       if (!this.db) return reject('No database open');
-      const stores = ['profile', 'leads', 'decisions', 'visits', 'calls', 'weekly_plans', 'emails'];
+      const stores = ['profile', 'leads', 'decisions', 'visits', 'calls', 'weekly_plans', 'emails', 'todos'];
       const transaction = this.db.transaction(stores, 'readwrite');
       
       stores.forEach(s => {
@@ -589,13 +668,183 @@ export class SalesFlowDB {
           searchRadiusKm: 15,
           fiscalYearStart: '2026-06-01',
           quarterlySummitTarget: 9000,
-          quarterlyPresidentsClubTarget: 12000
+          quarterlyPresidentsClubTarget: 12000,
+          soundEffectsEnabled: true
         };
         this.saveProfile(defaultProfile).then(() => resolve());
       };
 
       transaction.onerror = () => reject(transaction.error);
     });
+  }
+
+  // --- Target & Badge achievement tracking helpers ---
+  
+  async checkAchievementsBeforeActivity(): Promise<{
+    dailyOsvMetBefore: boolean;
+    weeklyOsvMetBefore: boolean;
+    weeklyApptMetBefore: boolean;
+    dailyOsvTarget: number;
+    weeklyOsvTarget: number;
+    weeklyApptTarget: number;
+  }> {
+    const now = new Date();
+    const currentWeekId = getWeekId(now);
+    const plan = await this.getWeeklyPlan(currentWeekId);
+    
+    const todayStart = new Date();
+    todayStart.setHours(0,0,0,0);
+    const todayStartTs = todayStart.getTime();
+    const mondayStartTs = plan.startDate;
+    
+    const allVisits = await this.getAllVisits();
+    const allCalls = await this.getAllCalls();
+    
+    const days: ('sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday')[] = [
+      'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'
+    ];
+    const currentDay = days[now.getDay()];
+    
+    const dailyOsvTarget = plan.targets[currentDay]?.osv ?? 0;
+    
+    const weeklyOsvTarget = 
+      plan.targets.monday.osv + 
+      plan.targets.tuesday.osv + 
+      plan.targets.wednesday.osv + 
+      plan.targets.thursday.osv + 
+      plan.targets.friday.osv;
+      
+    const weeklyApptTarget = 
+      plan.targets.monday.appointments + 
+      plan.targets.tuesday.appointments + 
+      plan.targets.wednesday.appointments + 
+      plan.targets.thursday.appointments + 
+      plan.targets.friday.appointments;
+      
+    const osvTodayBefore = allVisits.filter(v => v.timestamp >= todayStartTs).length;
+    const osvWeekBefore = allVisits.filter(v => v.timestamp >= mondayStartTs).length;
+    
+    const apptsFromVisitsWeekBefore = allVisits.filter(v => v.timestamp >= mondayStartTs && v.outcome === 'appointment_set').length;
+    const apptsFromCallsWeekBefore = allCalls.filter(c => c.timestamp >= mondayStartTs && c.outcome === 'appointment_set').length;
+    const apptsWeekBefore = apptsFromVisitsWeekBefore + apptsFromCallsWeekBefore;
+    
+    return {
+      dailyOsvMetBefore: dailyOsvTarget > 0 && osvTodayBefore >= dailyOsvTarget,
+      weeklyOsvMetBefore: weeklyOsvTarget > 0 && osvWeekBefore >= weeklyOsvTarget,
+      weeklyApptMetBefore: weeklyApptTarget > 0 && apptsWeekBefore >= weeklyApptTarget,
+      dailyOsvTarget,
+      weeklyOsvTarget,
+      weeklyApptTarget
+    };
+  }
+
+  async getProfileBadges(profile: Profile): Promise<AchievementBadge[]> {
+    const allVisits = await this.getAllVisits();
+    const allCalls = await this.getAllCalls();
+    const allLeads = await this.getAllLeads();
+    
+    // Group visits by date (YYYY-MM-DD)
+    const visitsByDate: { [date: string]: number } = {};
+    allVisits.forEach(v => {
+      const dateStr = new Date(v.timestamp).toISOString().split('T')[0];
+      visitsByDate[dateStr] = (visitsByDate[dateStr] || 0) + 1;
+    });
+    const maxVisitsInADay = Object.keys(visitsByDate).length > 0 ? Math.max(...Object.values(visitsByDate)) : 0;
+    const pacesetterUnlocked = maxVisitsInADay >= 10;
+    
+    // Group calls by date (YYYY-MM-DD)
+    const callsByDate: { [date: string]: number } = {};
+    allCalls.forEach(c => {
+      const dateStr = new Date(c.timestamp).toISOString().split('T')[0];
+      callsByDate[dateStr] = (callsByDate[dateStr] || 0) + 1;
+    });
+    const maxCallsInADay = Object.keys(callsByDate).length > 0 ? Math.max(...Object.values(callsByDate)) : 0;
+    const callCrusaderUnlocked = maxCallsInADay >= 50;
+
+    // Secured first sold account
+    const soldLeads = allLeads.filter(l => l.status === 'sold');
+    const closerUnlocked = soldLeads.length >= 1;
+    
+    // Total Sales Value
+    const totalSalesValue = soldLeads.reduce((sum, l) => sum + (l.dealValue || 0), 0);
+    const dealmakerUnlocked = totalSalesValue >= 5000;
+    
+    // Scout
+    const totalLeadsCount = allLeads.length;
+    const scoutUnlocked = totalLeadsCount >= 100;
+    
+    // Summit/Pres Club targets
+    const summitTarget = profile.quarterlySummitTarget || 9000;
+    const summitUnlocked = totalSalesValue >= summitTarget;
+    
+    const presClubTarget = profile.quarterlyPresidentsClubTarget || 12000;
+    const presClubUnlocked = totalSalesValue >= presClubTarget;
+
+    return [
+      {
+        id: 'pacesetter',
+        title: 'Pacesetter',
+        description: 'Complete 10 On-Site Visits in a single day',
+        icon: '🏃',
+        unlocked: pacesetterUnlocked,
+        progressText: `${maxVisitsInADay}/10 visits`,
+        progressPercent: Math.min(100, Math.round((maxVisitsInADay / 10) * 100))
+      },
+      {
+        id: 'call_crusader',
+        title: 'Cold Call Crusader',
+        description: 'Log 50 phone calls in a single day',
+        icon: '📞',
+        unlocked: callCrusaderUnlocked,
+        progressText: `${maxCallsInADay}/50 calls`,
+        progressPercent: Math.min(100, Math.round((maxCallsInADay / 50) * 100))
+      },
+      {
+        id: 'closer',
+        title: 'Closer',
+        description: 'Secure your first Sold (Closed Won) account',
+        icon: '🤝',
+        unlocked: closerUnlocked,
+        progressText: closerUnlocked ? 'Unlocked!' : '0/1 sold',
+        progressPercent: closerUnlocked ? 100 : 0
+      },
+      {
+        id: 'dealmaker_elite',
+        title: 'Dealmaker Elite',
+        description: 'Reach $5,000 in total sales revenue',
+        icon: '💎',
+        unlocked: dealmakerUnlocked,
+        progressText: `$${totalSalesValue.toLocaleString()}/$5,000`,
+        progressPercent: Math.min(100, Math.round((totalSalesValue / 5000) * 100))
+      },
+      {
+        id: 'radar_scout',
+        title: 'Radar Scout',
+        description: 'Add 100 prospects to your pipeline',
+        icon: '📡',
+        unlocked: scoutUnlocked,
+        progressText: `${totalLeadsCount}/100 prospects`,
+        progressPercent: Math.min(100, Math.round((totalLeadsCount / 100) * 100))
+      },
+      {
+        id: 'summit_achiever',
+        title: 'Summit Club',
+        description: 'Exceed the quarterly Summit sales target',
+        icon: '🏆',
+        unlocked: summitUnlocked,
+        progressText: `$${totalSalesValue.toLocaleString()}/$${summitTarget.toLocaleString()}`,
+        progressPercent: Math.min(100, Math.round((totalSalesValue / summitTarget) * 100))
+      },
+      {
+        id: 'presidents_club',
+        title: 'Presidents Club',
+        description: 'Exceed the quarterly Presidents Club sales target',
+        icon: '👑',
+        unlocked: presClubUnlocked,
+        progressText: `$${totalSalesValue.toLocaleString()}/$${presClubTarget.toLocaleString()}`,
+        progressPercent: Math.min(100, Math.round((totalSalesValue / presClubTarget) * 100))
+      }
+    ];
   }
 }
 

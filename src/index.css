@@ -1108,3 +1108,40 @@ h1, h2, h3, h4, h5, h6 {
   height: 48px;
   color: hsl(var(--text-muted) / 0.5);
 }
+
+/* Badges animations and styles */
+@keyframes glow-sage {
+  0%, 100% {
+    box-shadow: 0 0 8px hsla(var(--primary) / 0.15);
+    border-color: hsl(var(--primary) / 0.8);
+  }
+  50% {
+    box-shadow: 0 0 20px hsla(var(--primary) / 0.45);
+    border-color: hsl(var(--primary));
+  }
+}
+
+.badge-unlocked {
+  animation: glow-sage 3s infinite ease-in-out;
+}
+
+@keyframes scaleUp {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
