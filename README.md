@@ -115,3 +115,7 @@ The following high-priority features are scheduled for the next development iter
    * Secure local IndexedDB operations to prevent raw inspection.
    * Implement end-to-end encryption for sync payloads transferred during background sync.
 
+3. **Achievements Timeframe Classification** 🏆
+   * Add interactive tabs/filters to segment achievements into **Weekly**, **Quarterly**, **Yearly**, and **Lifetime** views.
+   * Adapt the quota engines to support dynamic badge unlocks and goals progress tracking across these distinct, nested time intervals.
+
