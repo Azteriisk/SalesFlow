@@ -119,3 +119,9 @@ The following high-priority features are scheduled for the next development iter
    * Add interactive tabs/filters to segment achievements into **Weekly**, **Quarterly**, **Yearly**, and **Lifetime** views.
    * Adapt the quota engines to support dynamic badge unlocks and goals progress tracking across these distinct, nested time intervals.
 
+4. **B2B Organization & Multi-Rep Company Management** 🏢
+   * **Company Profiles & Organization Linkage**: Allow sales representatives to specify their employer inside their profile to link their local databases to a corporate workspace.
+   * **Management Dashboard & Permissions**: Introduce designated admin/manager accounts that can monitor reps, override achievements progress, and toggle specific badges on or off.
+   * **Quota & Target Governance**: Enable managers to set daily/weekly quotas for reps, with toggles to decide whether reps manage their own goals or have targets locked by management (with baseline goal templates customizable by company).
+   * **Comprehensive Team Analytics**: Pull aggregate multi-user reports, team leaderboards, comparison graphs (target vs. actual), and track overlapping regions.
+
