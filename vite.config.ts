@@ -12,7 +12,7 @@ export default defineConfig({
         'icon-192x192.png', 
         'icon-512x512.png', 
         'favicon.ico', 
-        'screenshots/desktop.png', 
+        'screenshots/discovery.png', 
         'screenshots/mobile.png'
       ],
       manifest: {
@@ -54,18 +54,18 @@ export default defineConfig({
         ],
         screenshots: [
           {
-            src: 'screenshots/desktop.png',
-            sizes: '1280x720',
+            src: 'screenshots/discovery.png',
+            sizes: '475x1009',
             type: 'image/png',
-            form_factor: 'wide',
-            label: 'SalesFlow Desktop Dashboard View'
+            form_factor: 'narrow',
+            label: 'SalesFlow Discovery and Swipe Interface'
           },
           {
             src: 'screenshots/mobile.png',
-            sizes: '720x1280',
+            sizes: '480x1011',
             type: 'image/png',
             form_factor: 'narrow',
-            label: 'SalesFlow Mobile Swiper View'
+            label: 'SalesFlow CRM Pipeline View'
           }
         ]
       }

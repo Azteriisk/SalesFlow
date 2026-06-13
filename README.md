@@ -50,9 +50,9 @@ SalesFlow is configured as a fully compliant Progressive Web Application (PWA) w
 * **Settings Panel Toggles**: Users can toggle browser notifications on/off in the Settings screen, which requests browser permissions dynamically.
 
 ### 3. PWA Screenshot Assets
-To ensure the app passes PWA manifest validation and is ready for app store indexing, place your screenshots in the following directories:
-* **Widescreen Screenshot**: Place a `1280x720` PNG image at `public/screenshots/desktop.png`.
-* **Mobile Screenshot**: Place a `720x1280` PNG image at `public/screenshots/mobile.png`.
+To ensure the app passes PWA manifest validation and is ready for app store indexing, the following mobile screenshots are registered:
+* **Discovery Interface Screenshot**: A `475x1009` portrait PNG image located at `public/screenshots/discovery.png`.
+* **CRM Pipeline Screenshot**: A `480x1011` portrait PNG image located at `public/screenshots/mobile.png`.
 
 ---
 
