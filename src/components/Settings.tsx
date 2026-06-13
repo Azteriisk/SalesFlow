@@ -84,11 +84,11 @@ const Settings: React.FC<SettingsProps> = ({
   >('month');
 
   // Custom Fiscal Year inputs (starts on Month X, Day Y)
-  const [fiscalStartMonth, setFiscalStartMonth] = useState<number>(11); // Default November (11)
+  const [fiscalStartMonth, setFiscalStartMonth] = useState<number>(6); // Default June (6)
   const [fiscalStartDay, setFiscalStartDay] = useState<number>(1);
 
-  // Custom Quarter start month (e.g., Feb 1st means Q1 is Feb-Apr, Q2 is May-Jul, Q3 is Aug-Oct, Q4 is Nov-Jan)
-  const [customQuarterStartMonth, setCustomQuarterStartMonth] = useState<number>(2); // Default February (2)
+  // Custom Quarter start month (e.g., June 1st means Q1 is Jun-Aug, Q2 is Sep-Nov, Q3 is Dec-Feb, Q4 is Mar-May)
+  const [customQuarterStartMonth, setCustomQuarterStartMonth] = useState<number>(6); // Default June (6)
 
   // Custom range inputs
   const [soldRangeStart, setSoldRangeStart] = useState<string>(
