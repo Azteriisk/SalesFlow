@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
-  Flame, 
+  Radar, 
   Users, 
   PhoneCall, 
   Settings as SettingsIcon, 
@@ -118,7 +118,7 @@ const App: React.FC = () => {
   if (!dbInitialized || !profile) {
     return (
       <div className="leaflet-placeholder">
-        <Flame className="animate-pulse" style={{ width: '48px', height: '48px', stroke: '#818cf8' }} />
+        <Radar className="animate-pulse" style={{ width: '48px', height: '48px', stroke: '#818cf8' }} />
         <h3 style={{ fontFamily: 'Outfit', fontWeight: 600 }}>Initializing SalesFlow...</h3>
       </div>
     );
@@ -173,7 +173,7 @@ const App: React.FC = () => {
       {/* Dynamic Header */}
       <header className="app-header">
         <div className="brand">
-          <Flame style={{ width: '24px', height: '24px' }} />
+          <Radar style={{ width: '24px', height: '24px' }} />
           <span>SalesFlow</span>
         </div>
         
@@ -210,7 +210,7 @@ const App: React.FC = () => {
           className={`tab-button ${activeTab === 'discover' ? 'active' : ''}`}
           onClick={() => setActiveTab('discover')}
         >
-          <Flame />
+          <Radar />
           <span>Discover</span>
         </button>
         

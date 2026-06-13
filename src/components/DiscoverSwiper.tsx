@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Flame, Check, X, Ban, Compass, AlertCircle, MapPin, Phone, Globe } from 'lucide-react';
+import { Radar, Check, X, Ban, Compass, AlertCircle, MapPin, Phone, Globe } from 'lucide-react';
 import { dbService } from '../services/db';
 import type { Lead, Profile, RecommendationDecision } from '../services/db';
 import { searchNearbyPlaces, getPlaceDetails } from '../services/places';
@@ -428,7 +428,7 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
   if (!activeCard) {
     return (
       <div className="empty-state">
-        <Flame style={{ stroke: '#818cf8' }} />
+        <Radar style={{ stroke: '#818cf8' }} />
         <h3>All Caught Up!</h3>
         <p>No new potential businesses found in this area.</p>
         <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.82rem' }}>

@@ -10,9 +10,9 @@
   --text-secondary: 43 41% 89%;   /* #ebdbb2 (Vintage white) */
   --text-muted: 34 15% 59%;       /* #a89984 (Muted warm grey) */
   
-  --primary: 26 99% 55%;          /* #fe8019 (Warm Orange) */
-  --primary-glow: 26 99% 55% / 0.15;
-  --secondary: 197 18% 58%;       /* #83a598 (Muted Teal Blue) */
+  --primary: 108 40% 62%;         /* #8ec07c (Gruvbox Sage/Green) */
+  --primary-glow: 108 40% 62% / 0.15;
+  --secondary: 26 99% 55%;        /* #fe8019 (Warm Orange) */
   
   --success: 61 66% 44%;          /* #b8bb26 (Olive/Lime Green) */
   --success-glow: 61 66% 44% / 0.15;
