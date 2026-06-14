@@ -142,10 +142,12 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
   const [isAnimating, setIsAnimating] = useState<boolean>(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // GPS drift protection: track last fetched coordinates to prevent refetching
-  // unless user has moved >250 meters from the previous API call location
+  // GPS drift protection: track last fetched coordinates and time to prevent refetching
+  // unless user has moved >250 meters and at least 30 seconds have elapsed
   const lastFetchedLocation = useRef<{ latitude: number; longitude: number } | null>(null);
+  const lastFetchedTime = useRef<number>(0);
   const GPS_DRIFT_THRESHOLD_KM = 0.25; // 250 meters
+  const MIN_FETCH_INTERVAL_MS = 30000; // 30 seconds minimum between API calls
 
   // Drawer state
   const [selectedCandidate, setSelectedCandidate] = useState<PlaceResult | null>(null);
@@ -171,9 +173,11 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
     await handleDecision(status);
   };
 
-  // Load candidates on mount or location/profile changes — with GPS drift protection
+  // Load candidates on mount or location/profile changes — with GPS drift and temporal protection
   useEffect(() => {
-    // Check if user has moved enough to justify a new API call
+    const now = Date.now();
+
+    // Check both time and distance thresholds
     if (lastFetchedLocation.current) {
       const movedKm = getDistanceKm(
         lastFetchedLocation.current.latitude,
@@ -181,8 +185,10 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
         location.latitude,
         location.longitude
       );
-      if (movedKm < GPS_DRIFT_THRESHOLD_KM) {
-        // GPS drift: user hasn't meaningfully moved, skip refetch
+      const timeElapsed = now - lastFetchedTime.current;
+
+      // Skip if they haven't moved enough OR if it has been too short a time since the last fetch
+      if (movedKm < GPS_DRIFT_THRESHOLD_KM || timeElapsed < MIN_FETCH_INTERVAL_MS) {
         return;
       }
     }
@@ -256,8 +262,9 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
         setCandidates(scored);
         setCurrentIndex(0);
         
-        // Update last fetched location after successful fetch
+        // Update last fetched location and timestamp after successful fetch
         lastFetchedLocation.current = { latitude: location.latitude, longitude: location.longitude };
+        lastFetchedTime.current = Date.now();
       } catch (err: any) {
         console.error(err);
         setError(err.message || 'Failed to fetch nearby prospects.');
