@@ -802,6 +802,17 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
             <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'hsl(var(--success))' }}>Start Phone Call Block ({leads.filter(l => l.status === 'phone_block').length})</span>
             <span style={{ fontSize: '0.74rem', color: 'hsl(var(--text-secondary))' }}>Call leads qualified during physical visits to book presentations.</span>
           </button>
+
+          {!profile?.organizationId && (
+            <button 
+              className="glass-card animate-pulse-subtle" 
+              style={{ textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '0.35rem', border: '1px dashed hsl(var(--primary) / 0.5)', background: 'hsl(var(--primary) / 0.03)' }}
+              onClick={() => setActiveTab('company')}
+            >
+              <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'hsl(var(--primary))' }}>🏢 Join or Create Company</span>
+              <span style={{ fontSize: '0.74rem', color: 'hsl(var(--text-secondary))' }}>Sync with your team, view leaderboards, and align locked daily quota targets.</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

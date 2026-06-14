@@ -140,164 +140,11 @@ export async function searchNearbyPlaces(
   return Array.from(allResultsMap.values());
 }
 
-// Seeded mock review generator based on business type
-export function generateMockReviews(placeName: string, types: string[]): PlaceReview[] {
-  const nameLower = placeName.toLowerCase();
-  const isAuto = types.includes('car_repair') || types.includes('auto_repair') || nameLower.includes('auto') || nameLower.includes('mechanic') || nameLower.includes('tire');
-  const isFood = types.includes('restaurant') || types.includes('food') || nameLower.includes('pizza') || nameLower.includes('cafe') || nameLower.includes('kitchen') || nameLower.includes('grill') || nameLower.includes('bakery');
-  const isLogistics = types.includes('warehouse') || types.includes('storage') || nameLower.includes('logistics') || nameLower.includes('warehouse') || nameLower.includes('shipping') || nameLower.includes('freight');
-  const isContractor = types.includes('contractor') || types.includes('plumber') || types.includes('electrician') || nameLower.includes('hvac') || nameLower.includes('plumbing') || nameLower.includes('heating') || nameLower.includes('electric');
-
-  if (isAuto) {
-    return [
-      {
-        authorName: 'David K.',
-        rating: 5,
-        text: `Took my truck to ${placeName} for a brake job and oil change. They did a great job, very transparent with pricing, and finished ahead of schedule!`,
-        relativeTime: '2 weeks ago'
-      },
-      {
-        authorName: 'Sarah M.',
-        rating: 5,
-        text: 'Super honest mechanics. They checked out a squeaking sound in my steering and explained it was just a loose belt, didn\'t charge me a dime to tighten it.',
-        relativeTime: '1 month ago'
-      },
-      {
-        authorName: 'Marcus T.',
-        rating: 4,
-        text: 'A bit busy so you should definitely make an appointment, but their service is top notch. Highly recommend them for any heavy duty repairs.',
-        relativeTime: '3 months ago'
-      }
-    ];
-  }
-
-  if (isFood) {
-    return [
-      {
-        authorName: 'Emily R.',
-        rating: 5,
-        text: `Hands down the best lunch option in the area. The staff at ${placeName} are incredibly friendly and the food is always fresh and hot.`,
-        relativeTime: '3 days ago'
-      },
-      {
-        authorName: 'Carlos G.',
-        rating: 5,
-        text: 'An absolute gem! Great atmosphere, extremely clean, and their signature dishes are spectacular. Will definitely be coming back weekly.',
-        relativeTime: '1 month ago'
-      },
-      {
-        authorName: 'Jessica L.',
-        rating: 4,
-        text: 'Great food, portion sizes are huge! Service was slightly slow on Friday night but they were packed. Still highly recommended.',
-        relativeTime: '2 months ago'
-      }
-    ];
-  }
-
-  if (isLogistics) {
-    return [
-      {
-        authorName: 'Robert B. (Fleet Manager)',
-        rating: 5,
-        text: `Very organized facility. Shipping and receiving office is efficient. Our drivers always report fast load times at ${placeName}.`,
-        relativeTime: '1 month ago'
-      },
-      {
-        authorName: 'Elena V.',
-        rating: 5,
-        text: 'Modern storage facility with excellent security. Access is seamless and the management staff is extremely helpful.',
-        relativeTime: '2 months ago'
-      },
-      {
-        authorName: 'Jim P.',
-        rating: 4,
-        text: 'Good yard space and clean loading docks. Easy to navigate and security guards are professional.',
-        relativeTime: '4 months ago'
-      }
-    ];
-  }
-
-  if (isContractor) {
-    return [
-      {
-        authorName: 'Thomas W.',
-        rating: 5,
-        text: `Excellent response time! Our HVAC unit went down in 90-degree heat and ${placeName} had a technician out within the hour. Fixed the issue instantly.`,
-        relativeTime: '1 week ago'
-      },
-      {
-        authorName: 'Amanda S.',
-        rating: 5,
-        text: 'Very professional, clean, and courteous. They explained the plumbing repairs needed, gave a clear estimate, and completed the work perfectly.',
-        relativeTime: '1 month ago'
-      },
-      {
-        authorName: 'Brian N.',
-        rating: 4,
-        text: 'Had some electrical work done in our office. Reliable scheduling and high-quality work. Will use them again.',
-        relativeTime: '3 months ago'
-      }
-    ];
-  }
-
-  // General fallback
-  return [
-    {
-      authorName: 'Alex M.',
-      rating: 5,
-      text: `Excellent experience working with the team at ${placeName}. Professional, responsive, and high-quality service.`,
-      relativeTime: '1 month ago'
-    },
-    {
-      authorName: 'Rachel T.',
-      rating: 5,
-      text: 'Great communication, prompt delivery of services, and very reasonable rates. Highly recommended!',
-      relativeTime: '2 months ago'
-    },
-    {
-      authorName: 'Michael S.',
-      rating: 4,
-      text: 'Good reliable business. Staff is helpful and they resolved our issues quickly. Will continue to do business here.',
-      relativeTime: '3 months ago'
-    }
-  ];
-}
-
-// Generates seeded deterministic mock details if API fails or lacks key
-function getMockDetails(placeId: string, name: string, types: string[]): Partial<PlaceResult> {
-  let seed = 0;
-  for (let i = 0; i < placeId.length; i++) {
-    seed += placeId.charCodeAt(i);
-  }
-  const random = (offset: number) => {
-    const x = Math.sin(seed + offset) * 10000;
-    return x - Math.floor(x);
-  };
-
-  const areaCode = 312; // Chicago/default area
-  const prefix = Math.floor(100 + random(1) * 899);
-  const line = Math.floor(1000 + random(2) * 8999);
-  const phone = `(${areaCode}) ${prefix}-${line}`;
-
-  const cleanName = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-    .substring(0, 15);
-  const website = `https://www.${cleanName || 'business'}.com`;
-  const reviews = generateMockReviews(name, types);
-
-  return {
-    phone,
-    website,
-    reviews
-  };
-}
-
-// Fetch detailed information for a single place (phone number, website, etc., with fallback)
+// Fetch detailed information for a single place (phone number, website, etc.)
 export async function getPlaceDetails(
   placeId: string,
-  placeName?: string,
-  types?: string[]
+  _placeName?: string,
+  _types?: string[]
 ): Promise<Partial<PlaceResult>> {
   try {
     await loadGoogleMapsScript();
@@ -330,13 +177,13 @@ export async function getPlaceDetails(
             })) || []
           });
         } else {
-          console.warn(`PlacesService failed for ${placeId}: ${status}. Using mock details fallback.`);
-          resolve(getMockDetails(placeId, placeName || 'Unknown Business', types || []));
+          console.warn(`PlacesService failed for ${placeId}: ${status}. Returning empty details.`);
+          resolve({});
         }
       });
     });
   } catch (err) {
-    console.warn(`getPlaceDetails error for ${placeId}. Using mock details fallback.`, err);
-    return getMockDetails(placeId, placeName || 'Unknown Business', types || []);
+    console.warn(`getPlaceDetails error for ${placeId}. Returning empty details.`, err);
+    return {};
   }
 }
