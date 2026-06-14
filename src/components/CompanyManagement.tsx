@@ -7,7 +7,7 @@ import {
   Settings2,
   Lock
 } from 'lucide-react';
-import { useOrganization, useUser, OrganizationSwitcher } from '@clerk/clerk-react';
+import { useOrganization, useUser, OrganizationSwitcher, CreateOrganization, OrganizationList } from '@clerk/clerk-react';
 import { dbService } from '../services/db';
 import type { Profile, Organization } from '../services/db';
 
@@ -26,6 +26,7 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
   const { user } = useUser();
   
   const [activeTab, setActiveTab] = useState<'roster' | 'analytics' | 'settings'>('roster');
+  const [orgView, setOrgView] = useState<'prompt' | 'create' | 'list'>('prompt');
   const [localOrg, setLocalOrg] = useState<Organization | null>(null);
   const [lockTargets, setLockTargets] = useState<boolean>(true);
   const [dailyOsv, setDailyOsv] = useState<number>(10);
@@ -126,17 +127,64 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
   if (!organization) {
     return (
       <div className="tab-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '2rem', textAlign: 'center' }}>
-        <Building style={{ width: '48px', height: '48px', color: 'hsl(var(--text-muted))', marginBottom: '1rem' }} />
-        <h2 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.5rem', marginBottom: '0.5rem' }}>No Organization Active</h2>
-        <p style={{ color: 'hsl(var(--text-secondary))', marginBottom: '1.5rem', maxWidth: '300px' }}>
-          Please select or create an organization using the switcher below to access company targets and team features.
-        </p>
-        <div style={{ background: 'hsl(var(--bg-secondary))', padding: '0.75rem', borderRadius: '12px', border: '1px solid hsl(var(--border-muted))' }}>
-          <OrganizationSwitcher 
-            afterCreateOrganizationUrl="/#company"
-            afterSelectOrganizationUrl="/#company"
-          />
-        </div>
+        {orgView === 'prompt' ? (
+          <>
+            <Building style={{ width: '48px', height: '48px', color: 'hsl(var(--text-muted))', marginBottom: '1rem' }} />
+            <h2 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.5rem', marginBottom: '0.5rem' }}>No Organization Active</h2>
+            <p style={{ color: 'hsl(var(--text-secondary))', marginBottom: '1.5rem', maxWidth: '350px' }}>
+              Create a new company organization or join an existing one to access shared target locking, team leaderboards, and collaborative mapping.
+            </p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', maxWidth: '280px', marginTop: '0.5rem' }}>
+              <button 
+                className="btn-primary" 
+                onClick={() => setOrgView('create')}
+                style={{ cursor: 'pointer', padding: '0.75rem 1rem', fontSize: '0.9rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+              >
+                Create a New Company
+              </button>
+              <button 
+                className="btn-secondary" 
+                onClick={() => setOrgView('list')}
+                style={{ cursor: 'pointer', padding: '0.75rem 1rem', fontSize: '0.9rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+              >
+                Join / Switch Company
+              </button>
+            </div>
+          </>
+        ) : orgView === 'create' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', width: '100%', alignItems: 'center' }}>
+            <button 
+              onClick={() => setOrgView('prompt')}
+              className="btn-secondary"
+              style={{ marginBottom: '1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+            >
+              ← Back to Options
+            </button>
+            <div style={{ background: 'hsl(var(--bg-secondary))', padding: '1.5rem', borderRadius: '16px', border: '1px solid hsl(var(--border-muted))', width: '100%', maxWidth: '480px', display: 'flex', justifyContent: 'center' }}>
+              <CreateOrganization 
+                afterCreateOrganizationUrl="/#company"
+              />
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', width: '100%', alignItems: 'center' }}>
+            <button 
+              onClick={() => setOrgView('prompt')}
+              className="btn-secondary"
+              style={{ marginBottom: '1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+            >
+              ← Back to Options
+            </button>
+            <div style={{ background: 'hsl(var(--bg-secondary))', padding: '1.5rem', borderRadius: '16px', border: '1px solid hsl(var(--border-muted))', width: '100%', maxWidth: '480px', display: 'flex', justifyContent: 'center' }}>
+              <OrganizationList 
+                hidePersonal={true}
+                afterCreateOrganizationUrl="/#company"
+                afterSelectOrganizationUrl="/#company"
+              />
+            </div>
+          </div>
+        )}
       </div>
     );
   }

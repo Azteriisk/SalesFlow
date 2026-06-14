@@ -599,7 +599,7 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
         <div className="empty-state">
           <Users />
           <h3>Pipeline Empty</h3>
-          <p>Go to the **Discover** tab to swipe right on new businesses nearby and build your pipeline.</p>
+          <p>Go to the <strong style={{ fontWeight: 'bold', color: 'hsl(var(--primary))' }}>Discover</strong> tab to swipe right on new businesses nearby and build your pipeline.</p>
         </div>
       ) : (
         <div className="lead-list">
