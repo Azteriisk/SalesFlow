@@ -5,9 +5,11 @@ import {
   Target, 
   BarChart3, 
   Settings2,
-  Lock
+  Lock,
+  Check
 } from 'lucide-react';
 import { useOrganization, useUser, OrganizationSwitcher, CreateOrganization, OrganizationList } from '@clerk/clerk-react';
+import { INDUSTRY_CATEGORIES } from '../services/places';
 import { dbService } from '../services/db';
 import type { Profile, Organization } from '../services/db';
 
@@ -31,6 +33,7 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
   const [lockTargets, setLockTargets] = useState<boolean>(true);
   const [dailyOsv, setDailyOsv] = useState<number>(10);
   const [dailyCalls, setDailyCalls] = useState<number>(30);
+  const [companyIndustries, setCompanyIndustries] = useState<string[]>([]);
   const [userOsvCount, setUserOsvCount] = useState<number>(0);
 
   const isAdmin = membership?.role === 'org:admin';
@@ -56,6 +59,7 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
             appointments: 2,
             revenue: 500
           },
+          defaultIndustries: ['auto_repair', 'warehouse', 'restaurant', 'contractor', 'waste_management'],
           achievementConfig: {
             lockTargets: true
           },
@@ -68,6 +72,7 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
       setLockTargets(org.achievementConfig?.lockTargets ?? true);
       setDailyOsv(org.defaultTargets.osv);
       setDailyCalls(org.defaultTargets.calls);
+      setCompanyIndustries(org.defaultIndustries || ['auto_repair', 'warehouse', 'restaurant', 'contractor', 'waste_management']);
 
       // Save organization link in profile
       if (profile.organizationId !== organization.id) {
@@ -108,6 +113,7 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
         osv: dailyOsv,
         calls: dailyCalls
       },
+      defaultIndustries: companyIndustries,
       achievementConfig: {
         ...localOrg.achievementConfig,
         lockTargets
@@ -341,6 +347,43 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
                 />
               </div>
             </div>
+            <div className="form-group" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+              <label style={{ marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.9rem' }}>Company Default Target Industries</label>
+              <div className="category-checklist" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+                {INDUSTRY_CATEGORIES.map(category => {
+                  const isChecked = companyIndustries.includes(category.id);
+                  return (
+                    <div 
+                      key={category.id} 
+                      className={`category-card ${isChecked ? 'active' : ''}`}
+                      onClick={() => {
+                        if (isChecked) {
+                          setCompanyIndustries(companyIndustries.filter(item => item !== category.id));
+                        } else {
+                          setCompanyIndustries([...companyIndustries, category.id]);
+                        }
+                      }}
+                      style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}
+                    >
+                      <div style={{ 
+                        width: '14px', 
+                        height: '14px', 
+                        borderRadius: '3px', 
+                        border: '1px solid hsl(var(--border-muted))', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        background: isChecked ? 'hsl(var(--primary))' : 'transparent'
+                      }}>
+                        {isChecked && <Check style={{ width: '10px', height: '10px', stroke: '#fff' }} />}
+                      </div>
+                      <span>{category.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <button 
               className="btn-primary" 
               onClick={handleSaveGovernance}

@@ -14,6 +14,7 @@ export interface Profile {
   motivationRemindersEnabled?: boolean;
   organizationId?: string; // Links this profile to a company
   clerkUserId?: string; // Clerk User ID for auth and E2E encryption
+  jobType?: string; // Links profile to a role for industry recommendations
 }
 
 export interface Organization {
@@ -22,6 +23,7 @@ export interface Organization {
   adminUserIds: string[];
   memberUserIds: string[];
   defaultTargets: DailyTargets;
+  defaultIndustries?: string[]; // Custom company target industries
   achievementConfig?: any; // Custom badges or toggles
   logoUrl?: string;
 }
@@ -422,7 +424,8 @@ export class SalesFlowDB {
               soundEffectsEnabled: true,
               notificationsEnabled: false,
               appointmentRemindersEnabled: true,
-              motivationRemindersEnabled: true
+              motivationRemindersEnabled: true,
+              jobType: 'General Commercial Representative'
             };
             this.saveProfile(defaultProfile).then(() => resolve(defaultProfile));
           }

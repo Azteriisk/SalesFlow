@@ -10,8 +10,7 @@ import {
   FileSpreadsheet,
   BarChart3,
   TrendingUp,
-  Briefcase,
-  Lock
+  Briefcase
 } from 'lucide-react';
 import { 
   dbService, 
@@ -62,6 +61,7 @@ const Settings: React.FC<SettingsProps> = ({
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(profile.notificationsEnabled ?? false);
   const [appointmentRemindersEnabled, setAppointmentRemindersEnabled] = useState<boolean>(profile.appointmentRemindersEnabled ?? true);
   const [motivationRemindersEnabled, setMotivationRemindersEnabled] = useState<boolean>(profile.motivationRemindersEnabled ?? true);
+  const [jobType, setJobType] = useState<string>(profile.jobType || 'General Commercial Representative');
   
   // Sync status
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
@@ -136,35 +136,36 @@ const Settings: React.FC<SettingsProps> = ({
       
       if (profile.organizationId) {
         const org = await dbService.getOrganization(profile.organizationId);
-        if (org && org.achievementConfig?.lockTargets) {
-          setTargetsLocked(true);
-          const lockedTargets = {
-            osv: org.defaultTargets.osv,
-            calls: org.defaultTargets.calls,
-            appointments: org.defaultTargets.appointments ?? 2,
-            revenue: org.defaultTargets.revenue ?? 500
-          };
-          plan = {
-            ...plan,
-            targets: {
-              monday: lockedTargets,
-              tuesday: lockedTargets,
-              wednesday: lockedTargets,
-              thursday: lockedTargets,
-              friday: lockedTargets,
-              saturday: { osv: 0, calls: 0, appointments: 0, revenue: 0 },
-              sunday: { osv: 0, calls: 0, appointments: 0, revenue: 0 }
-            }
-          };
-          await dbService.saveWeeklyPlan(plan);
-        } else {
-          setTargetsLocked(false);
+        if (org) {
+          
+          // Check if this plan has not been manually edited/saved yet
+          const isNewPlan = !localStorage.getItem(`weekly_plan_saved_${currentWeekId}`);
+          if (isNewPlan) {
+            const defaultTargets = {
+              osv: org.defaultTargets.osv,
+              calls: org.defaultTargets.calls,
+              appointments: org.defaultTargets.appointments ?? 2,
+              revenue: org.defaultTargets.revenue ?? 500
+            };
+            plan = {
+              ...plan,
+              targets: {
+                monday: defaultTargets,
+                tuesday: defaultTargets,
+                wednesday: defaultTargets,
+                thursday: defaultTargets,
+                friday: defaultTargets,
+                saturday: { osv: 0, calls: 0, appointments: 0, revenue: 0 },
+                sunday: { osv: 0, calls: 0, appointments: 0, revenue: 0 }
+              }
+            };
+            await dbService.saveWeeklyPlan(plan);
+          }
         }
-      } else {
-        setTargetsLocked(false);
       }
       
       setWeeklyPlan(plan);
+      setTargetsLocked(false); // Enable manual quota editing at all times
     };
     loadPlanAndOrg();
   }, [currentWeekId, profile.organizationId]);
@@ -173,6 +174,71 @@ const Settings: React.FC<SettingsProps> = ({
     setSimLat(location.latitude.toFixed(6));
     setSimLng(location.longitude.toFixed(6));
   }, [location]);
+
+  const JOB_TYPE_RECOMMENDATIONS: Record<string, string[]> = {
+    'Uniform Sales Representative': ['auto_repair', 'warehouse', 'restaurant', 'manufacturing', 'contractor'],
+    'Waste & Sanitation Representative': ['waste_management', 'manufacturing', 'auto_repair'],
+    'Food & Beverage Representative': ['restaurant'],
+    'Logistics & Warehouse Representative': ['warehouse', 'manufacturing'],
+    'General Commercial Representative': ['auto_repair', 'warehouse', 'restaurant', 'manufacturing', 'waste_management', 'contractor', 'construction']
+  };
+
+  const handleJobTypeChange = (val: string) => {
+    setJobType(val);
+    const recommended = JOB_TYPE_RECOMMENDATIONS[val];
+    if (recommended) {
+      setActiveIndustries(recommended);
+    }
+  };
+
+  const handleApplyCompanyDefaults = async () => {
+    if (!profile.organizationId || !weeklyPlan) return;
+    try {
+      const org = await dbService.getOrganization(profile.organizationId);
+      if (org) {
+        const companyTargets = {
+          osv: org.defaultTargets.osv,
+          calls: org.defaultTargets.calls,
+          appointments: org.defaultTargets.appointments ?? 2,
+          revenue: org.defaultTargets.revenue ?? 500
+        };
+        const updatedPlan = {
+          ...weeklyPlan,
+          targets: {
+            monday: companyTargets,
+            tuesday: companyTargets,
+            wednesday: companyTargets,
+            thursday: companyTargets,
+            friday: companyTargets,
+            saturday: { osv: 0, calls: 0, appointments: 0, revenue: 0 },
+            sunday: { osv: 0, calls: 0, appointments: 0, revenue: 0 }
+          }
+        };
+        setWeeklyPlan(updatedPlan);
+        await dbService.saveWeeklyPlan(updatedPlan);
+        alert('Weekly targets reset to company defaults.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to apply company defaults.');
+    }
+  };
+
+  const handleApplyCompanyIndustries = async () => {
+    if (!profile.organizationId) return;
+    try {
+      const org = await dbService.getOrganization(profile.organizationId);
+      if (org && org.defaultIndustries) {
+        setActiveIndustries(org.defaultIndustries);
+        alert('Target industries reset to company defaults.');
+      } else {
+        alert('No default industries set by the company.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to apply company default industries.');
+    }
+  };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,7 +258,8 @@ const Settings: React.FC<SettingsProps> = ({
       soundEffectsEnabled,
       notificationsEnabled,
       appointmentRemindersEnabled,
-      motivationRemindersEnabled
+      motivationRemindersEnabled,
+      jobType
     };
     onProfileUpdate(updated);
     alert('Profile settings saved successfully.');
@@ -240,6 +307,7 @@ const Settings: React.FC<SettingsProps> = ({
     if (!weeklyPlan) return;
     try {
       await dbService.saveWeeklyPlan(weeklyPlan);
+      localStorage.setItem(`weekly_plan_saved_${currentWeekId}`, 'true');
       alert('Weekly planning targets saved successfully.');
     } catch (err) {
       console.error(err);
@@ -692,7 +760,40 @@ const Settings: React.FC<SettingsProps> = ({
         </div>
 
         <div className="form-group">
-          <label style={{ marginBottom: '0.4rem' }}>Target Industries (Uniform Services Fit)</label>
+          <label style={{ marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <Briefcase style={{ width: '15px', height: '15px', color: 'hsl(var(--primary))' }} />
+            Job Type Profile
+          </label>
+          <select 
+            value={jobType} 
+            onChange={(e) => handleJobTypeChange(e.target.value)}
+            className="form-control"
+            style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '8px', color: 'hsl(var(--text-primary))', padding: '0.5rem', width: '100%', cursor: 'pointer', outline: 'none' }}
+          >
+            <option value="General Commercial Representative">General Commercial Representative</option>
+            <option value="Uniform Sales Representative">Uniform Sales Representative</option>
+            <option value="Waste & Sanitation Representative">Waste & Sanitation Representative</option>
+            <option value="Food & Beverage Representative">Food & Beverage Representative</option>
+            <option value="Logistics & Warehouse Representative">Logistics & Warehouse Representative</option>
+          </select>
+          <span style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', marginTop: '0.25rem', display: 'block' }}>
+            Changing your job type will automatically check the recommended industries below (you can still customize them).
+          </span>
+        </div>
+
+        <div className="form-group">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+            <label style={{ margin: 0 }}>Target Industries ({jobType} Fit)</label>
+            {profile.organizationId && (
+              <button 
+                type="button"
+                onClick={handleApplyCompanyIndustries}
+                style={{ background: 'transparent', border: 'none', color: 'hsl(var(--secondary))', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', textDecoration: 'underline' }}
+              >
+                Apply Company Defaults
+              </button>
+            )}
+          </div>
           <div className="category-checklist">
             {INDUSTRY_CATEGORIES.map(category => (
               <div 
@@ -894,17 +995,21 @@ const Settings: React.FC<SettingsProps> = ({
             </table>
           </div>
 
-          {targetsLocked ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'hsl(var(--warning))', fontSize: '0.85rem', fontWeight: 600 }}>
-              <Lock style={{ width: '16px', height: '16px' }} />
-              Quota targets are locked by organization governance
-            </div>
-          ) : (
-            <button onClick={handleSavePlanner} className="btn-primary" style={{ alignSelf: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+            <button onClick={handleSavePlanner} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
               <Save style={{ width: '16px', height: '16px' }} />
               Save Weekly Targets
             </button>
-          )}
+            {profile.organizationId && (
+              <button 
+                onClick={handleApplyCompanyDefaults} 
+                className="btn-secondary" 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                Reset to Company Defaults
+              </button>
+            )}
+          </div>
         </div>
       )}
 
