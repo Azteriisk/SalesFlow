@@ -49,11 +49,6 @@ SalesFlow is configured as a fully compliant Progressive Web Application (PWA) w
 * **Daily Goal Motivation Alerts**: Around 3:30 PM, the notification engine checks the rep's daily OSV target against their completed visits for the day. If they are behind schedule, a motivational message is dispatched to encourage hitting their target.
 * **Settings Panel Toggles**: Users can toggle browser notifications on/off in the Settings screen, which requests browser permissions dynamically.
 
-### 3. PWA Screenshot Assets
-To ensure the app passes PWA manifest validation and is ready for app store indexing, the following mobile screenshots are registered:
-* **Discovery Interface Screenshot**: A `475x1009` portrait PNG image located at `public/screenshots/discovery.png`.
-* **CRM Pipeline Screenshot**: A `480x1011` portrait PNG image located at `public/screenshots/mobile.png`.
-
 ---
 
 ## Technical Stack
@@ -64,42 +59,6 @@ To ensure the app passes PWA manifest validation and is ready for app store inde
 - **PWA Capabilities**: Service worker registration via `vite-plugin-pwa`.
 - **Hybrid Mobile Wrapper**: Ready for Capacitor integrations (`capacitor.config.ts`).
 - **Icons**: Lucide React.
-
----
-
-## Getting Started
-
-### Prerequisites
-Make sure you have Node.js (version 18+ recommended) installed.
-
-### Installation
-1. Clone the repository and navigate to the project directory:
-   ```bash
-   cd SalesFlow
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-### Running Locally
-Run the Vite development server:
-```bash
-npm run dev
-```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
-
-### Building for Production & PWA Testing
-Build the static distribution files and generate the PWA service worker:
-```bash
-npm run build
-```
-The output bundle will be created inside the `dist/` directory.
-
-You can preview the production build locally:
-```bash
-npm run preview
-```
 
 ---
 
