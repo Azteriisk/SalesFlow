@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
   Radar, 
@@ -125,46 +125,34 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [dbInitialized]);
 
-  // GPS drift protection: only update state if user has moved >50 meters
-  const lastReportedLocation = useRef<{ latitude: number; longitude: number } | null>(null);
-  const GPS_UPDATE_THRESHOLD_KM = 0.05; // 50 meters
-
-  function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371;
-    const deg2rad = (deg: number) => deg * (Math.PI / 180);
-    const dLat = deg2rad(lat2 - lat1);
-    const dLon = deg2rad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-
-  // Monitor location with drift protection
+  // Get initial location on startup
   useEffect(() => {
-    if (isSimulatedLoc) return; // Don't overwrite simulation
-
+    if (isSimulatedLoc) return;
     if (navigator.geolocation) {
-      const watchId = navigator.geolocation.watchPosition(
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLocation({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          });
+        },
+        (err) => {
+          console.warn('Initial geolocation failed:', err);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    }
+  }, [isSimulatedLoc]);
+
+  const refreshLocation = () => {
+    if (isSimulatedLoc) return;
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
         (pos) => {
           const newLat = pos.coords.latitude;
           const newLng = pos.coords.longitude;
-
-          // Only update state if user has moved beyond the threshold
-          if (lastReportedLocation.current) {
-            const movedKm = haversineKm(
-              lastReportedLocation.current.latitude,
-              lastReportedLocation.current.longitude,
-              newLat,
-              newLng
-            );
-            if (movedKm < GPS_UPDATE_THRESHOLD_KM) {
-              return; // GPS drift, skip state update
-            }
-          }
-
-          lastReportedLocation.current = { latitude: newLat, longitude: newLng };
           setLocation({ latitude: newLat, longitude: newLng });
           
-          // Save last known location to profile if DB is ready
           if (dbInitialized && profile) {
             dbService.saveProfile({
               ...profile,
@@ -174,14 +162,12 @@ const App: React.FC = () => {
           }
         },
         (err) => {
-          console.warn('Geolocation error:', err);
+          console.warn('Failed to refresh location:', err);
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );
-
-      return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, [isSimulatedLoc, dbInitialized, profile]);
+  };
 
   const handleProfileUpdate = async (updatedProfile: Profile) => {
     setProfile(updatedProfile);
@@ -315,7 +301,10 @@ const App: React.FC = () => {
         
         <button 
           className={`tab-button ${activeTab === 'discover' ? 'active' : ''}`}
-          onClick={() => setActiveTab('discover')}
+          onClick={() => {
+            setActiveTab('discover');
+            refreshLocation();
+          }}
         >
           <Radar />
           <span>Discover</span>
