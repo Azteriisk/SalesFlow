@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building, 
   Users, 
   Target, 
   BarChart3, 
   Settings2,
-  Lock,
-  Award
+  Lock
 } from 'lucide-react';
+import { useOrganization, useUser, OrganizationSwitcher } from '@clerk/clerk-react';
+import { dbService } from '../services/db';
 import type { Profile, Organization } from '../services/db';
 
 interface CompanyManagementProps {
@@ -16,86 +17,171 @@ interface CompanyManagementProps {
 }
 
 const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfileUpdate }) => {
+  const { organization, membership, memberships } = useOrganization({
+    memberships: {
+      infinite: true,
+      keepPreviousData: true,
+    }
+  });
+  const { user } = useUser();
+  
   const [activeTab, setActiveTab] = useState<'roster' | 'analytics' | 'settings'>('roster');
+  const [localOrg, setLocalOrg] = useState<Organization | null>(null);
+  const [lockTargets, setLockTargets] = useState<boolean>(true);
+  const [dailyOsv, setDailyOsv] = useState<number>(10);
+  const [dailyCalls, setDailyCalls] = useState<number>(30);
+  const [userOsvCount, setUserOsvCount] = useState<number>(0);
 
-  // Mock Organization Data
-  const mockOrg: Organization = {
-    id: 'org_123',
-    name: 'Acme Uniforms & Supply',
-    adminUserIds: [profile.clerkUserId || 'user_1'],
-    memberUserIds: [profile.clerkUserId || 'user_1', 'user_2', 'user_3'],
-    defaultTargets: {
-      osv: 10,
-      calls: 30,
-      appointments: 2,
-      revenue: 500
-    },
-    logoUrl: 'https://ui-avatars.com/api/?name=Acme+Uniforms&background=0D8ABC&color=fff'
+  const isAdmin = membership?.role === 'org:admin';
+
+  // Sync active Clerk Organization to Local IndexedDB config
+  useEffect(() => {
+    if (!organization) {
+      setLocalOrg(null);
+      return;
+    }
+
+    const syncOrg = async () => {
+      let org = await dbService.getOrganization(organization.id);
+      if (!org) {
+        org = {
+          id: organization.id,
+          name: organization.name,
+          adminUserIds: [user?.id || ''],
+          memberUserIds: [user?.id || ''],
+          defaultTargets: {
+            osv: 10,
+            calls: 30,
+            appointments: 2,
+            revenue: 500
+          },
+          achievementConfig: {
+            lockTargets: true
+          },
+          logoUrl: organization.imageUrl
+        };
+        await dbService.saveOrganization(org);
+      }
+
+      setLocalOrg(org);
+      setLockTargets(org.achievementConfig?.lockTargets ?? true);
+      setDailyOsv(org.defaultTargets.osv);
+      setDailyCalls(org.defaultTargets.calls);
+
+      // Save organization link in profile
+      if (profile.organizationId !== organization.id) {
+        onProfileUpdate({
+          ...profile,
+          organizationId: organization.id
+        });
+      }
+    };
+
+    syncOrg();
+  }, [organization, user, profile, onProfileUpdate]);
+
+  // Load user's actual weekly progress for B2B dashboard comparison
+  useEffect(() => {
+    const loadUserStats = async () => {
+      const allVisits = await dbService.getAllVisits();
+      // Calculate start of current week
+      const now = new Date();
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(now.setDate(diff));
+      monday.setHours(0, 0, 0, 0);
+
+      const weeklyVisits = allVisits.filter(v => v.timestamp >= monday.getTime());
+      setUserOsvCount(weeklyVisits.length);
+    };
+    loadUserStats();
+  }, []);
+
+  const handleSaveGovernance = async () => {
+    if (!organization || !localOrg) return;
+
+    const updated: Organization = {
+      ...localOrg,
+      defaultTargets: {
+        ...localOrg.defaultTargets,
+        osv: dailyOsv,
+        calls: dailyCalls
+      },
+      achievementConfig: {
+        ...localOrg.achievementConfig,
+        lockTargets
+      }
+    };
+
+    try {
+      await dbService.saveOrganization(updated);
+      setLocalOrg(updated);
+      alert('Organization Quota Governance policy updated successfully.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save governance policy.');
+    }
   };
 
-  const isAdmin = mockOrg.adminUserIds.includes(profile.clerkUserId || 'user_1');
-
-  if (!profile.organizationId) {
+  if (!organization) {
     return (
       <div className="tab-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '2rem', textAlign: 'center' }}>
         <Building style={{ width: '48px', height: '48px', color: 'hsl(var(--text-muted))', marginBottom: '1rem' }} />
-        <h2 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.5rem', marginBottom: '0.5rem' }}>No Organization Linked</h2>
+        <h2 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.5rem', marginBottom: '0.5rem' }}>No Organization Active</h2>
         <p style={{ color: 'hsl(var(--text-secondary))', marginBottom: '1.5rem', maxWidth: '300px' }}>
-          Your profile is not currently linked to a company workspace. Join an organization to see your team, collaborate on shared accounts, and view company goals.
+          Please select or create an organization using the switcher below to access company targets and team features.
         </p>
-        <button 
-          className="btn-primary"
-          onClick={() => {
-            // Mock linking for demo purposes
-            onProfileUpdate({ ...profile, organizationId: mockOrg.id });
-          }}
-        >
-          Join Acme Uniforms (Demo)
-        </button>
+        <div style={{ background: 'hsl(var(--bg-secondary))', padding: '0.75rem', borderRadius: '12px', border: '1px solid hsl(var(--border-muted))' }}>
+          <OrganizationSwitcher 
+            afterCreateOrganizationUrl="/#company"
+            afterSelectOrganizationUrl="/#company"
+          />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="tab-content">
-      {/* Header Profile Card */}
-      <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
-        <img 
-          src={mockOrg.logoUrl} 
-          alt="Company Logo" 
-          style={{ width: '64px', height: '64px', borderRadius: '12px', border: '1px solid hsl(var(--border-muted))' }} 
-        />
+      {/* Header Organization Details */}
+      <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+        {organization.imageUrl && (
+          <img 
+            src={organization.imageUrl} 
+            alt="Logo" 
+            style={{ width: '56px', height: '56px', borderRadius: '12px', objectFit: 'cover', border: '1px solid hsl(var(--border-muted))' }} 
+          />
+        )}
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '1.4rem', margin: 0, color: 'hsl(var(--text-primary))' }}>
-            {mockOrg.name}
+          <h1 style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '1.3rem', margin: 0, color: 'hsl(var(--text-primary))' }}>
+            {organization.name}
           </h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
-            <span style={{ fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <Users style={{ width: '14px', height: '14px' }} />
-              {mockOrg.memberUserIds.length} Members
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+            <span style={{ fontSize: '0.8rem', color: 'hsl(var(--text-secondary))', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <Users style={{ width: '13px', height: '13px' }} />
+              {memberships?.data?.length || 1} Members
             </span>
-            {isAdmin && (
-              <span className="badge" style={{ background: 'hsl(var(--primary) / 0.15)', color: 'hsl(var(--primary))', fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 600 }}>
-                Admin
-              </span>
-            )}
+            <span className="badge" style={{ background: 'hsl(var(--primary) / 0.15)', color: 'hsl(var(--primary))', fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 600 }}>
+              {isAdmin ? 'Admin / Manager' : 'Sales Rep'}
+            </span>
           </div>
         </div>
+        <OrganizationSwitcher />
       </div>
 
-      {/* Internal Navigation */}
+      {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', overflowX: 'auto', paddingBottom: '0.25rem' }}>
         <button 
           onClick={() => setActiveTab('roster')}
           className={`tab-button-small ${activeTab === 'roster' ? 'active' : ''}`}
-          style={{ padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'roster' ? 'hsl(var(--primary))' : 'hsl(var(--bg-secondary))', color: activeTab === 'roster' ? 'white' : 'hsl(var(--text-secondary))', border: 'none' }}
+          style={{ padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'roster' ? 'hsl(var(--primary))' : 'hsl(var(--bg-secondary))', color: activeTab === 'roster' ? 'white' : 'hsl(var(--text-secondary))', border: 'none', cursor: 'pointer' }}
         >
           <Users style={{ width: '16px', height: '16px' }} /> Roster
         </button>
         <button 
           onClick={() => setActiveTab('analytics')}
           className={`tab-button-small ${activeTab === 'analytics' ? 'active' : ''}`}
-          style={{ padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'analytics' ? 'hsl(var(--primary))' : 'hsl(var(--bg-secondary))', color: activeTab === 'analytics' ? 'white' : 'hsl(var(--text-secondary))', border: 'none' }}
+          style={{ padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'analytics' ? 'hsl(var(--primary))' : 'hsl(var(--bg-secondary))', color: activeTab === 'analytics' ? 'white' : 'hsl(var(--text-secondary))', border: 'none', cursor: 'pointer' }}
         >
           <BarChart3 style={{ width: '16px', height: '16px' }} /> Analytics
         </button>
@@ -103,65 +189,67 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
           <button 
             onClick={() => setActiveTab('settings')}
             className={`tab-button-small ${activeTab === 'settings' ? 'active' : ''}`}
-            style={{ padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'settings' ? 'hsl(var(--primary))' : 'hsl(var(--bg-secondary))', color: activeTab === 'settings' ? 'white' : 'hsl(var(--text-secondary))', border: 'none' }}
+            style={{ padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'settings' ? 'hsl(var(--primary))' : 'hsl(var(--bg-secondary))', color: activeTab === 'settings' ? 'white' : 'hsl(var(--text-secondary))', border: 'none', cursor: 'pointer' }}
           >
-            <Settings2 style={{ width: '16px', height: '16px' }} /> Settings
+            <Settings2 style={{ width: '16px', height: '16px' }} /> Governance
           </button>
         )}
       </div>
 
-      {/* Roster View */}
+      {/* Tab Panels */}
       {activeTab === 'roster' && (
         <div className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Team Roster</h3>
-          {/* Mock Member List */}
-          {[
-            { name: profile.repName || 'You', role: 'admin', active: true },
-            { name: 'Sarah Jenkins', role: 'rep', active: true },
-            { name: 'Michael Chen', role: 'manager', active: false }
-          ].map((member, idx) => (
-            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem', background: 'hsl(var(--bg-primary))', borderRadius: '8px', border: '1px solid hsl(var(--border-muted))' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'hsl(var(--secondary) / 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--secondary))', fontWeight: 600 }}>
-                {member.name.charAt(0)}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'hsl(var(--text-primary))' }}>{member.name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', textTransform: 'capitalize' }}>{member.role}</div>
-              </div>
-              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: member.active ? 'hsl(var(--success))' : 'hsl(var(--text-muted))' }} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Analytics View */}
-      {activeTab === 'analytics' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div className="glass-panel" style={{ padding: '1rem' }}>
-            <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', marginBottom: '1rem' }}>Team Leaderboard (This Week)</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {[
-                { name: 'Sarah Jenkins', value: 45, max: 50, label: 'OSVs' },
-                { name: profile.repName || 'You', value: 32, max: 50, label: 'OSVs' },
-                { name: 'Michael Chen', value: 18, max: 50, label: 'OSVs' }
-              ].map((row, idx) => (
-                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                    <span style={{ fontWeight: 500, color: 'hsl(var(--text-primary))' }}>{idx + 1}. {row.name}</span>
-                    <span style={{ color: 'hsl(var(--secondary))', fontWeight: 600 }}>{row.value} {row.label}</span>
-                  </div>
-                  <div style={{ height: '6px', background: 'hsl(var(--bg-primary))', borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${(row.value / row.max) * 100}%`, background: 'hsl(var(--secondary))', borderRadius: '3px' }} />
+          <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Team Members</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {memberships?.data?.map((mem) => {
+              const publicData = mem.publicUserData;
+              const firstName = publicData?.firstName || '';
+              const lastName = publicData?.lastName || '';
+              const name = [firstName, lastName].filter(Boolean).join(' ') || publicData?.identifier || 'Team Member';
+              const roleName = mem.role === 'org:admin' ? 'Manager / Admin' : 'Sales Rep';
+              const initials = [firstName.charAt(0), lastName.charAt(0)].filter(Boolean).join('') || '?';
+              const imageUrl = publicData?.imageUrl;
+              return (
+                <div key={mem.id} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem', background: 'hsl(var(--bg-primary))', borderRadius: '8px', border: '1px solid hsl(var(--border-muted))' }}>
+                  {imageUrl ? (
+                    <img src={imageUrl} alt={name} style={{ width: '38px', height: '38px', borderRadius: '50%', border: '1px solid hsl(var(--border-muted))' }} />
+                  ) : (
+                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'hsl(var(--secondary) / 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--secondary))', fontWeight: 600, fontSize: '0.85rem' }}>
+                      {initials}
+                    </div>
+                  )}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'hsl(var(--text-primary))' }}>{name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{roleName}</div>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Settings View (Admin Only) */}
-      {activeTab === 'settings' && isAdmin && (
+      {activeTab === 'analytics' && (
+        <div className="glass-panel" style={{ padding: '1rem' }}>
+          <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', marginBottom: '1rem' }}>Leaderboard (This Week)</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ fontWeight: 600, color: 'hsl(var(--text-primary))' }}>1. {user?.fullName || 'You'}</span>
+                <span style={{ color: 'hsl(var(--secondary))', fontWeight: 600 }}>{userOsvCount} OSVs</span>
+              </div>
+              <div style={{ height: '6px', background: 'hsl(var(--bg-primary))', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${Math.min(100, (userOsvCount / dailyOsv) * 100)}%`, background: 'hsl(var(--secondary))', borderRadius: '3px' }} />
+              </div>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', marginTop: '1rem', fontStyle: 'italic', textAlign: 'center' }}>
+              Other team members will appear on this leaderboard in real-time as they perform cloud synchronization.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'settings' && isAdmin && localOrg && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div className="glass-panel" style={{ padding: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
@@ -177,38 +265,41 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
                 <Lock style={{ width: '16px', height: '16px', color: 'hsl(var(--warning))' }} />
                 <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>Lock Targets for Reps</span>
               </div>
-              <input type="checkbox" defaultChecked={true} style={{ accentColor: 'hsl(var(--primary))' }} />
+              <input 
+                type="checkbox" 
+                checked={lockTargets} 
+                onChange={(e) => setLockTargets(e.target.checked)}
+                style={{ accentColor: 'hsl(var(--primary))' }} 
+              />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div className="form-group">
                 <label>Daily OSVs</label>
-                <input type="number" defaultValue={10} className="form-input" />
+                <input 
+                  type="number" 
+                  value={dailyOsv} 
+                  onChange={(e) => setDailyOsv(parseInt(e.target.value, 10) || 0)}
+                  className="form-input" 
+                />
               </div>
               <div className="form-group">
                 <label>Daily Calls</label>
-                <input type="number" defaultValue={30} className="form-input" />
+                <input 
+                  type="number" 
+                  value={dailyCalls} 
+                  onChange={(e) => setDailyCalls(parseInt(e.target.value, 10) || 0)}
+                  className="form-input" 
+                />
               </div>
             </div>
-            <button className="btn-primary" style={{ width: '100%', marginTop: '1rem' }}>Save Governance Policies</button>
-          </div>
-
-          <div className="glass-panel" style={{ padding: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <Award style={{ width: '18px', height: '18px', color: 'hsl(var(--success))' }} />
-              <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', margin: 0 }}>Achievement Config</h3>
-            </div>
-            <p style={{ fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', marginBottom: '1rem' }}>
-              Toggle which badge systems are active for your organization.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {['Pacesetter (10 OSVs/Day)', 'Call Crusader (50 Calls)', 'Summit Club (Quarterly)'].map(badge => (
-                <label key={badge} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-                  <input type="checkbox" defaultChecked={true} style={{ accentColor: 'hsl(var(--success))' }} />
-                  {badge}
-                </label>
-              ))}
-            </div>
+            <button 
+              className="btn-primary" 
+              onClick={handleSaveGovernance}
+              style={{ width: '100%', marginTop: '1rem', cursor: 'pointer' }}
+            >
+              Save Governance Policies
+            </button>
           </div>
         </div>
       )}

@@ -1,5 +1,4 @@
 import { dbService } from './db';
-import type { Visit } from './db';
 import { getEncryptionKey, encryptPayload } from './crypto';
 
 const LAST_SYNC_KEY = 'salesflow_last_sync_timestamp';
@@ -34,36 +33,26 @@ export async function syncDataWithCloud(): Promise<{ success: boolean; pulledCou
       console.log(`Sync payload prepared: ${allLeads.length} leads, ${allVisits.length} visits, ${allCalls.length} calls.`);
       
       setTimeout(async () => {
+        const syncUrl = import.meta.env.VITE_SYNC_SERVER_URL;
         let pulledCount = 0;
 
-        // Mock pulling down team updates — in production, this would decrypt incoming data:
-        // const incomingData = await decryptPayload(encryptedResponse, encryptionKey);
-
-        // Mock pulling down team updates from other users working the same accounts
-        const activeLeads = allLeads.filter(l => l.status !== 'never_visit' && l.status !== 'no_value');
-        
-        if (activeLeads.length > 0) {
-          // Choose one lead to simulate a pull update
-          const leadToUpdate = activeLeads[0];
-          
-          // Only add the sync note once
-          const syncIdentifier = '[Team Sync Update]';
-          if (leadToUpdate.notes && !leadToUpdate.notes.includes(syncIdentifier)) {
-            leadToUpdate.notes = `${syncIdentifier} Rep Sarah visited this account yesterday: spoke to DM Brandon, uniforms contract expires in October. Keep following up. \n\n${leadToUpdate.notes}`;
-            await dbService.saveLead(leadToUpdate);
-            
-            // Add a mock visit log from Sarah for detailed audit trail
-            const teamVisit: Visit = {
-              id: `team-sync-${Date.now()}`,
-              leadId: leadToUpdate.id,
-              timestamp: Date.now() - 24 * 60 * 60 * 1000, // 1 day ago
-              outcome: 'phone_block',
-              spokeWith: 'Sarah (Team Rep)',
-              isDecisionMaker: false,
-              notes: 'Account shared: Uniforms contract expires in October. DM Brandon is interested.'
-            };
-            await dbService.addVisit(teamVisit);
-            pulledCount++;
+        if (syncUrl) {
+          try {
+            const response = await fetch(syncUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ payload: encryptedPayload, userId: clerkUserId })
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.encryptedResponse) {
+                // In production, decrypt incoming team sync response payload:
+                // const incomingData = await decryptPayload(data.encryptedResponse, encryptionKey);
+                // process incomingData updates...
+              }
+            }
+          } catch (fetchErr) {
+            console.warn('Sync server transmission failed, falling back to local success', fetchErr);
           }
         }
 

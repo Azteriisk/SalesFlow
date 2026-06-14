@@ -10,7 +10,8 @@ import {
   FileSpreadsheet,
   BarChart3,
   TrendingUp,
-  Briefcase
+  Briefcase,
+  Lock
 } from 'lucide-react';
 import { 
   dbService, 
@@ -127,13 +128,46 @@ const Settings: React.FC<SettingsProps> = ({
     { name: 'Downtown Los Angeles', lat: 34.0522, lng: -118.2437 }
   ];
 
+  const [targetsLocked, setTargetsLocked] = useState<boolean>(false);
+
   useEffect(() => {
-    const loadPlan = async () => {
-      const plan = await dbService.getWeeklyPlan(currentWeekId);
+    const loadPlanAndOrg = async () => {
+      let plan = await dbService.getWeeklyPlan(currentWeekId);
+      
+      if (profile.organizationId) {
+        const org = await dbService.getOrganization(profile.organizationId);
+        if (org && org.achievementConfig?.lockTargets) {
+          setTargetsLocked(true);
+          const lockedTargets = {
+            osv: org.defaultTargets.osv,
+            calls: org.defaultTargets.calls,
+            appointments: org.defaultTargets.appointments ?? 2,
+            revenue: org.defaultTargets.revenue ?? 500
+          };
+          plan = {
+            ...plan,
+            targets: {
+              monday: lockedTargets,
+              tuesday: lockedTargets,
+              wednesday: lockedTargets,
+              thursday: lockedTargets,
+              friday: lockedTargets,
+              saturday: { osv: 0, calls: 0, appointments: 0, revenue: 0 },
+              sunday: { osv: 0, calls: 0, appointments: 0, revenue: 0 }
+            }
+          };
+          await dbService.saveWeeklyPlan(plan);
+        } else {
+          setTargetsLocked(false);
+        }
+      } else {
+        setTargetsLocked(false);
+      }
+      
       setWeeklyPlan(plan);
     };
-    loadPlan();
-  }, [currentWeekId]);
+    loadPlanAndOrg();
+  }, [currentWeekId, profile.organizationId]);
 
   useEffect(() => {
     setSimLat(location.latitude.toFixed(6));
@@ -822,6 +856,7 @@ const Settings: React.FC<SettingsProps> = ({
                       <input 
                         type="number" 
                         min={0}
+                        disabled={targetsLocked}
                         value={weeklyPlan.targets[day]?.osv ?? 0}
                         onChange={(e) => handleUpdateTarget(day, 'osv', parseInt(e.target.value, 10))}
                       />
@@ -830,6 +865,7 @@ const Settings: React.FC<SettingsProps> = ({
                       <input 
                         type="number" 
                         min={0}
+                        disabled={targetsLocked}
                         value={weeklyPlan.targets[day]?.calls ?? 0}
                         onChange={(e) => handleUpdateTarget(day, 'calls', parseInt(e.target.value, 10))}
                       />
@@ -838,6 +874,7 @@ const Settings: React.FC<SettingsProps> = ({
                       <input 
                         type="number" 
                         min={0}
+                        disabled={targetsLocked}
                         value={weeklyPlan.targets[day]?.appointments ?? 0}
                         onChange={(e) => handleUpdateTarget(day, 'appointments', parseInt(e.target.value, 10))}
                       />
@@ -846,6 +883,7 @@ const Settings: React.FC<SettingsProps> = ({
                       <input 
                         type="number" 
                         min={0}
+                        disabled={targetsLocked}
                         value={weeklyPlan.targets[day]?.revenue ?? 0}
                         onChange={(e) => handleUpdateTarget(day, 'revenue', parseInt(e.target.value, 10))}
                       />
@@ -856,10 +894,17 @@ const Settings: React.FC<SettingsProps> = ({
             </table>
           </div>
 
-          <button onClick={handleSavePlanner} className="btn-primary" style={{ alignSelf: 'flex-start' }}>
-            <Save style={{ width: '16px', height: '16px' }} />
-            Save Weekly Targets
-          </button>
+          {targetsLocked ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'hsl(var(--warning))', fontSize: '0.85rem', fontWeight: 600 }}>
+              <Lock style={{ width: '16px', height: '16px' }} />
+              Quota targets are locked by organization governance
+            </div>
+          ) : (
+            <button onClick={handleSavePlanner} className="btn-primary" style={{ alignSelf: 'flex-start' }}>
+              <Save style={{ width: '16px', height: '16px' }} />
+              Save Weekly Targets
+            </button>
+          )}
         </div>
       )}
 

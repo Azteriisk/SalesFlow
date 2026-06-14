@@ -1,3 +1,5 @@
+import { getEncryptionKey, encryptField, decryptField } from './crypto';
+
 export interface Profile {
   id: string; // "user_profile"
   repName: string;
@@ -253,6 +255,150 @@ export class SalesFlowDB {
     return transaction.objectStore(name);
   }
 
+  // --- Encryption Helpers ---
+  private async getEncryptionKeyHelper(): Promise<CryptoKey | null> {
+    try {
+      const profile = await this.getProfile();
+      return await getEncryptionKey(profile.clerkUserId || undefined);
+    } catch {
+      return null;
+    }
+  }
+
+  private async encryptLead(lead: Lead, key: CryptoKey): Promise<Lead> {
+    const encrypted = { ...lead };
+    if (lead.notes) encrypted.notes = await encryptField(lead.notes, key);
+    if (lead.decisionMaker) encrypted.decisionMaker = await encryptField(lead.decisionMaker, key);
+    if (lead.gatekeeper) encrypted.gatekeeper = await encryptField(lead.gatekeeper, key);
+    if (lead.phone) encrypted.phone = await encryptField(lead.phone, key);
+    if (lead.quotes && lead.quotes.length > 0) {
+      encrypted.quotes = await Promise.all(lead.quotes.map(async q => ({
+        ...q,
+        description: q.description ? await encryptField(q.description, key) : q.description
+      })));
+    }
+    return encrypted;
+  }
+
+  private async decryptLead(lead: Lead, key: CryptoKey): Promise<Lead> {
+    const decrypted = { ...lead };
+    try {
+      if (lead.notes && lead.notes.startsWith('ey')) {
+        decrypted.notes = await decryptField(lead.notes, key);
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      if (lead.decisionMaker && lead.decisionMaker.startsWith('ey')) {
+        decrypted.decisionMaker = await decryptField(lead.decisionMaker, key);
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      if (lead.gatekeeper && lead.gatekeeper.startsWith('ey')) {
+        decrypted.gatekeeper = await decryptField(lead.gatekeeper, key);
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      if (lead.phone && lead.phone.startsWith('ey')) {
+        decrypted.phone = await decryptField(lead.phone, key);
+      }
+    } catch {
+      // fallback
+    }
+    if (lead.quotes && lead.quotes.length > 0) {
+      decrypted.quotes = await Promise.all(lead.quotes.map(async q => {
+        const decQ = { ...q };
+        try {
+          if (q.description && q.description.startsWith('ey')) {
+            decQ.description = await decryptField(q.description, key);
+          }
+        } catch {
+          // fallback
+        }
+        return decQ;
+      }));
+    }
+    return decrypted;
+  }
+
+  private async encryptVisit(visit: Visit, key: CryptoKey): Promise<Visit> {
+    const encrypted = { ...visit };
+    if (visit.notes) encrypted.notes = await encryptField(visit.notes, key);
+    if (visit.spokeWith) encrypted.spokeWith = await encryptField(visit.spokeWith, key);
+    return encrypted;
+  }
+
+  private async decryptVisit(visit: Visit, key: CryptoKey): Promise<Visit> {
+    const decrypted = { ...visit };
+    try {
+      if (visit.notes && visit.notes.startsWith('ey')) {
+        decrypted.notes = await decryptField(visit.notes, key);
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      if (visit.spokeWith && visit.spokeWith.startsWith('ey')) {
+        decrypted.spokeWith = await decryptField(visit.spokeWith, key);
+      }
+    } catch {
+      // fallback
+    }
+    return decrypted;
+  }
+
+  private async encryptCall(call: Call, key: CryptoKey): Promise<Call> {
+    const encrypted = { ...call };
+    if (call.notes) encrypted.notes = await encryptField(call.notes, key);
+    return encrypted;
+  }
+
+  private async decryptCall(call: Call, key: CryptoKey): Promise<Call> {
+    const decrypted = { ...call };
+    try {
+      if (call.notes && call.notes.startsWith('ey')) {
+        decrypted.notes = await decryptField(call.notes, key);
+      }
+    } catch {
+      // fallback
+    }
+    return decrypted;
+  }
+
+  // --- Organization CRUD ---
+  async getOrganization(id: string): Promise<Organization | null> {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.getStore('organizations', 'readonly');
+        const request = store.get(id);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async saveOrganization(org: Organization): Promise<void> {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.getStore('organizations', 'readwrite');
+        const request = store.put(org);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
   // --- Profile CRUD ---
   async getProfile(): Promise<Profile> {
     await this.init();
@@ -305,7 +451,7 @@ export class SalesFlowDB {
   // --- Leads CRUD ---
   async getLead(id: string): Promise<Lead | null> {
     await this.init();
-    return new Promise((resolve, reject) => {
+    const rawLead: Lead | null = await new Promise((resolve, reject) => {
       try {
         const store = this.getStore('leads', 'readonly');
         const request = store.get(id);
@@ -315,14 +461,19 @@ export class SalesFlowDB {
         reject(e);
       }
     });
+    if (!rawLead) return null;
+    const key = await this.getEncryptionKeyHelper();
+    return key ? this.decryptLead(rawLead, key) : rawLead;
   }
 
   async saveLead(lead: Lead): Promise<void> {
     await this.init();
+    const key = await this.getEncryptionKeyHelper();
+    const finalLead = key ? await this.encryptLead(lead, key) : lead;
     return new Promise((resolve, reject) => {
       try {
         const store = this.getStore('leads', 'readwrite');
-        const request = store.put(lead);
+        const request = store.put(finalLead);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
       } catch (e) {
@@ -347,7 +498,7 @@ export class SalesFlowDB {
 
   async getLeadsByStatus(status: LeadStatus): Promise<Lead[]> {
     await this.init();
-    return new Promise((resolve, reject) => {
+    const rawLeads: Lead[] = await new Promise((resolve, reject) => {
       try {
         const store = this.getStore('leads', 'readonly');
         const index = store.index('status');
@@ -358,11 +509,14 @@ export class SalesFlowDB {
         reject(e);
       }
     });
+    const key = await this.getEncryptionKeyHelper();
+    if (!key) return rawLeads;
+    return Promise.all(rawLeads.map(l => this.decryptLead(l, key)));
   }
 
   async getAllLeads(): Promise<Lead[]> {
     await this.init();
-    return new Promise((resolve, reject) => {
+    const rawLeads: Lead[] = await new Promise((resolve, reject) => {
       try {
         const store = this.getStore('leads', 'readonly');
         const request = store.getAll();
@@ -372,6 +526,9 @@ export class SalesFlowDB {
         reject(e);
       }
     });
+    const key = await this.getEncryptionKeyHelper();
+    if (!key) return rawLeads;
+    return Promise.all(rawLeads.map(l => this.decryptLead(l, key)));
   }
 
   // --- Decisions CRUD (Discover swipe results) ---
@@ -420,10 +577,12 @@ export class SalesFlowDB {
   // --- Visits CRUD ---
   async addVisit(visit: Visit): Promise<void> {
     await this.init();
+    const key = await this.getEncryptionKeyHelper();
+    const finalVisit = key ? await this.encryptVisit(visit, key) : visit;
     return new Promise((resolve, reject) => {
       try {
         const store = this.getStore('visits', 'readwrite');
-        const request = store.put(visit);
+        const request = store.put(finalVisit);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
       } catch (e) {
@@ -434,7 +593,7 @@ export class SalesFlowDB {
 
   async getVisitsForLead(leadId: string): Promise<Visit[]> {
     await this.init();
-    return new Promise((resolve, reject) => {
+    const rawVisits: Visit[] = await new Promise((resolve, reject) => {
       try {
         const store = this.getStore('visits', 'readonly');
         const index = store.index('leadId');
@@ -449,11 +608,14 @@ export class SalesFlowDB {
         reject(e);
       }
     });
+    const key = await this.getEncryptionKeyHelper();
+    if (!key) return rawVisits;
+    return Promise.all(rawVisits.map(v => this.decryptVisit(v, key)));
   }
 
   async getAllVisits(): Promise<Visit[]> {
     await this.init();
-    return new Promise((resolve, reject) => {
+    const rawVisits: Visit[] = await new Promise((resolve, reject) => {
       try {
         const store = this.getStore('visits', 'readonly');
         const request = store.getAll();
@@ -467,15 +629,20 @@ export class SalesFlowDB {
         reject(e);
       }
     });
+    const key = await this.getEncryptionKeyHelper();
+    if (!key) return rawVisits;
+    return Promise.all(rawVisits.map(v => this.decryptVisit(v, key)));
   }
 
   // --- Calls CRUD ---
   async addCall(call: Call): Promise<void> {
     await this.init();
+    const key = await this.getEncryptionKeyHelper();
+    const finalCall = key ? await this.encryptCall(call, key) : call;
     return new Promise((resolve, reject) => {
       try {
         const store = this.getStore('calls', 'readwrite');
-        const request = store.put(call);
+        const request = store.put(finalCall);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
       } catch (e) {
@@ -486,7 +653,7 @@ export class SalesFlowDB {
 
   async getCallsForLead(leadId: string): Promise<Call[]> {
     await this.init();
-    return new Promise((resolve, reject) => {
+    const rawCalls: Call[] = await new Promise((resolve, reject) => {
       try {
         const store = this.getStore('calls', 'readonly');
         const index = store.index('leadId');
@@ -501,11 +668,14 @@ export class SalesFlowDB {
         reject(e);
       }
     });
+    const key = await this.getEncryptionKeyHelper();
+    if (!key) return rawCalls;
+    return Promise.all(rawCalls.map(c => this.decryptCall(c, key)));
   }
 
   async getAllCalls(): Promise<Call[]> {
     await this.init();
-    return new Promise((resolve, reject) => {
+    const rawCalls: Call[] = await new Promise((resolve, reject) => {
       try {
         const store = this.getStore('calls', 'readonly');
         const request = store.getAll();
@@ -519,6 +689,9 @@ export class SalesFlowDB {
         reject(e);
       }
     });
+    const key = await this.getEncryptionKeyHelper();
+    if (!key) return rawCalls;
+    return Promise.all(rawCalls.map(c => this.decryptCall(c, key)));
   }
 
   // --- Email Logs CRUD ---
