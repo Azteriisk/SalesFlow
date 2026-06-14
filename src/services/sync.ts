@@ -1,5 +1,6 @@
 import { dbService } from './db';
 import type { Visit } from './db';
+import { getEncryptionKey, encryptPayload } from './crypto';
 
 const LAST_SYNC_KEY = 'salesflow_last_sync_timestamp';
 
@@ -21,14 +22,24 @@ export async function syncDataWithCloud(): Promise<{ success: boolean; pulledCou
       const allVisits = await dbService.getAllVisits();
       const allCalls = await dbService.getAllCalls();
 
-      // Scaffolding: Here we would send POST /api/sync with all local leads/visits/calls
+      // --- E2E Encryption: encrypt sync payload before "transmitting" ---
+      const profile = await dbService.getProfile();
+      const clerkUserId = (profile as any).clerkUserId;
+      const encryptionKey = await getEncryptionKey(clerkUserId || undefined);
+
+      const syncPayload = { leads: allLeads, visits: allVisits, calls: allCalls };
+      const encryptedPayload = await encryptPayload(syncPayload, encryptionKey);
+      
+      console.log(`Sync payload encrypted (${encryptedPayload.length} chars). Ready for transit.`);
       console.log(`Sync payload prepared: ${allLeads.length} leads, ${allVisits.length} visits, ${allCalls.length} calls.`);
       
       setTimeout(async () => {
         let pulledCount = 0;
 
+        // Mock pulling down team updates — in production, this would decrypt incoming data:
+        // const incomingData = await decryptPayload(encryptedResponse, encryptionKey);
+
         // Mock pulling down team updates from other users working the same accounts
-        // We will scan our active leads and append a mock sync note from another team member to one of them
         const activeLeads = allLeads.filter(l => l.status !== 'never_visit' && l.status !== 'no_value');
         
         if (activeLeads.length > 0) {

@@ -29,6 +29,7 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [badges, setBadges] = useState<AchievementBadge[]>([]);
+  const [badgeTimeframe, setBadgeTimeframe] = useState<'weekly' | 'quarterly' | 'yearly' | 'lifetime'>('lifetime');
 
   // Daily totals
   const [todayOsv, setTodayOsv] = useState<number>(0);
@@ -218,9 +219,7 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
         const fyElapsed = nowTs - boundaries.fyStart;
         setFYDaysPercent(Math.min(100, Math.max(0, Math.round((fyElapsed / fyLength) * 100))));
 
-        // Fetch achievement badges
-        const badgesData = await dbService.getProfileBadges(profile);
-        setBadges(badgesData);
+        // Initial fetch of lifetime badges is handled by the other useEffect
 
       } catch (err) {
         console.error('Error loading dashboard stats', err);
@@ -231,6 +230,15 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
 
     fetchDashboardData();
   }, []);
+
+  // Fetch badges when timeframe changes
+  useEffect(() => {
+    const loadBadges = async () => {
+      const badgesData = await dbService.getProfileBadges(profile, badgeTimeframe);
+      setBadges(badgesData);
+    };
+    loadBadges();
+  }, [badgeTimeframe, profile]);
 
   // Initialize Map
   useEffect(() => {
@@ -535,6 +543,30 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
           <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', marginLeft: 'auto' }}>
             {badges.filter(b => b.unlocked).length} / {badges.length} Unlocked
           </span>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.5rem', scrollbarWidth: 'none' }}>
+          {(['weekly', 'quarterly', 'yearly', 'lifetime'] as const).map(tf => (
+            <button
+              key={tf}
+              onClick={() => setBadgeTimeframe(tf)}
+              style={{
+                background: badgeTimeframe === tf ? 'hsl(var(--primary) / 0.15)' : 'transparent',
+                color: badgeTimeframe === tf ? 'hsl(var(--primary))' : 'hsl(var(--text-muted))',
+                border: `1px solid ${badgeTimeframe === tf ? 'hsl(var(--primary) / 0.3)' : 'hsl(var(--border-muted))'}`,
+                padding: '0.35rem 0.75rem',
+                borderRadius: '1rem',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                textTransform: 'capitalize',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {tf}
+            </button>
+          ))}
         </div>
 
         <div style={{ 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Radar, 
@@ -6,8 +6,10 @@ import {
   PhoneCall, 
   Settings as SettingsIcon, 
   Wifi, 
-  WifiOff 
+  WifiOff,
+  Building
 } from 'lucide-react';
+import { SignedIn, SignedOut, SignIn, UserButton, useUser } from '@clerk/clerk-react';
 import { dbService } from './services/db';
 import type { Profile } from './services/db';
 import { 
@@ -26,10 +28,12 @@ import DiscoverSwiper from './components/DiscoverSwiper';
 import LeadManager from './components/LeadManager';
 import PhoneBlock from './components/PhoneBlock';
 import Settings from './components/Settings';
+import CompanyManagement from './components/CompanyManagement';
 
-export type TabType = 'dashboard' | 'discover' | 'leads' | 'phoneblock' | 'settings';
+export type TabType = 'dashboard' | 'discover' | 'leads' | 'phoneblock' | 'company' | 'settings';
 
 const App: React.FC = () => {
+  const { user } = useUser();
   const [dbInitialized, setDbInitialized] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -71,7 +75,23 @@ const App: React.FC = () => {
     const initDb = async () => {
       try {
         await dbService.init();
-        const userProfile = await dbService.getProfile();
+        let userProfile = await dbService.getProfile();
+        
+        if (user && user.id) {
+          let updated = false;
+          if ((userProfile as any).clerkUserId !== user.id) {
+            (userProfile as any).clerkUserId = user.id;
+            updated = true;
+          }
+          if (userProfile.repName === 'Sales Representative' && user.fullName) {
+            userProfile.repName = user.fullName;
+            updated = true;
+          }
+          if (updated) {
+            await dbService.saveProfile(userProfile);
+          }
+        }
+        
         setProfile(userProfile);
         setDbInitialized(true);
       } catch (err) {
@@ -79,7 +99,7 @@ const App: React.FC = () => {
       }
     };
     initDb();
-  }, []);
+  }, [user]);
 
   // Register background sync & periodic sync when DB is ready
   useEffect(() => {
@@ -105,24 +125,51 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [dbInitialized]);
 
-  // Monitor location
+  // GPS drift protection: only update state if user has moved >50 meters
+  const lastReportedLocation = useRef<{ latitude: number; longitude: number } | null>(null);
+  const GPS_UPDATE_THRESHOLD_KM = 0.05; // 50 meters
+
+  function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371;
+    const deg2rad = (deg: number) => deg * (Math.PI / 180);
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // Monitor location with drift protection
   useEffect(() => {
     if (isSimulatedLoc) return; // Don't overwrite simulation
 
     if (navigator.geolocation) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          setLocation({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude
-          });
+          const newLat = pos.coords.latitude;
+          const newLng = pos.coords.longitude;
+
+          // Only update state if user has moved beyond the threshold
+          if (lastReportedLocation.current) {
+            const movedKm = haversineKm(
+              lastReportedLocation.current.latitude,
+              lastReportedLocation.current.longitude,
+              newLat,
+              newLng
+            );
+            if (movedKm < GPS_UPDATE_THRESHOLD_KM) {
+              return; // GPS drift, skip state update
+            }
+          }
+
+          lastReportedLocation.current = { latitude: newLat, longitude: newLng };
+          setLocation({ latitude: newLat, longitude: newLng });
           
           // Save last known location to profile if DB is ready
           if (dbInitialized && profile) {
             dbService.saveProfile({
               ...profile,
-              lastLatitude: pos.coords.latitude,
-              lastLongitude: pos.coords.longitude
+              lastLatitude: newLat,
+              lastLongitude: newLng
             } as any);
           }
         },
@@ -195,6 +242,13 @@ const App: React.FC = () => {
         return (
           <PhoneBlock />
         );
+      case 'company':
+        return (
+          <CompanyManagement 
+            profile={profile}
+            onProfileUpdate={handleProfileUpdate}
+          />
+        );
       case 'settings':
         return (
           <Settings 
@@ -213,26 +267,36 @@ const App: React.FC = () => {
 
   return (
     <div className="app-container">
-      {/* Dynamic Header */}
-      <header className="app-header">
-        <div className="brand">
-          <Radar style={{ width: '24px', height: '24px' }} />
-          <span>SalesFlow</span>
+      <SignedOut>
+        <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <SignIn routing="hash" />
         </div>
-        
-        {/* Offline Badge */}
-        {isOffline ? (
-          <div className="offline-badge">
-            <WifiOff style={{ width: '14px', height: '14px' }} />
-            <span>Offline</span>
+      </SignedOut>
+
+      <SignedIn>
+        {/* Dynamic Header */}
+        <header className="app-header">
+          <div className="brand">
+            <Radar style={{ width: '24px', height: '24px' }} />
+            <span>SalesFlow</span>
           </div>
-        ) : (
-          <div className="offline-badge" style={{ background: 'hsl(142 70% 45% / 0.1)', border: '1px solid hsl(142 70% 45% / 0.3)', color: 'hsl(142 70% 45%)' }}>
-            <Wifi style={{ width: '14px', height: '14px' }} />
-            <span>Connected</span>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {/* Offline Badge */}
+            {isOffline ? (
+              <div className="offline-badge">
+                <WifiOff style={{ width: '14px', height: '14px' }} />
+                <span>Offline</span>
+              </div>
+            ) : (
+              <div className="offline-badge" style={{ background: 'hsl(142 70% 45% / 0.1)', border: '1px solid hsl(142 70% 45% / 0.3)', color: 'hsl(142 70% 45%)' }}>
+                <Wifi style={{ width: '14px', height: '14px' }} />
+                <span>Connected</span>
+              </div>
+            )}
+            <UserButton />
           </div>
-        )}
-      </header>
+        </header>
 
       {/* Main Container */}
       <main className="main-content">
@@ -274,6 +338,14 @@ const App: React.FC = () => {
         </button>
         
         <button 
+          className={`tab-button ${activeTab === 'company' ? 'active' : ''}`}
+          onClick={() => setActiveTab('company')}
+        >
+          <Building />
+          <span>Company</span>
+        </button>
+
+        <button 
           className={`tab-button ${activeTab === 'settings' ? 'active' : ''}`}
           onClick={() => setActiveTab('settings')}
         >
@@ -281,6 +353,7 @@ const App: React.FC = () => {
           <span>Settings</span>
         </button>
       </nav>
+      </SignedIn>
     </div>
   );
 };

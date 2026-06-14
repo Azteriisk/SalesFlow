@@ -10,6 +10,24 @@ export interface Profile {
   notificationsEnabled?: boolean;
   appointmentRemindersEnabled?: boolean;
   motivationRemindersEnabled?: boolean;
+  organizationId?: string; // Links this profile to a company
+  clerkUserId?: string; // Clerk User ID for auth and E2E encryption
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  adminUserIds: string[];
+  memberUserIds: string[];
+  defaultTargets: DailyTargets;
+  achievementConfig?: any; // Custom badges or toggles
+  logoUrl?: string;
+}
+
+export interface OrgMember {
+  userId: string;
+  role: 'admin' | 'manager' | 'rep';
+  managedGoals: boolean;
 }
 
 export interface AchievementBadge {
@@ -20,6 +38,7 @@ export interface AchievementBadge {
   unlocked: boolean;
   progressText: string;
   progressPercent: number;
+  timeframe: 'weekly' | 'quarterly' | 'yearly' | 'lifetime';
 }
 
 export interface TodoItem {
@@ -142,7 +161,7 @@ export function getWeekId(d: Date): string {
 }
 
 const DB_NAME = 'SalesFlowDB';
-const DB_VERSION = 4; // Incremented version to support general Todos list store
+const DB_VERSION = 5; // Incremented version to support organizations store
 
 export class SalesFlowDB {
   private db: IDBDatabase | null = null;
@@ -216,6 +235,11 @@ export class SalesFlowDB {
           const todosStore = db.createObjectStore('todos', { keyPath: 'id' });
           todosStore.createIndex('dueDate', 'dueDate', { unique: false });
           todosStore.createIndex('leadId', 'leadId', { unique: false });
+        }
+
+        // Organizations store
+        if (!db.objectStoreNames.contains('organizations')) {
+          db.createObjectStore('organizations', { keyPath: 'id' });
         }
       };
     });
@@ -747,23 +771,55 @@ export class SalesFlowDB {
     };
   }
 
-  async getProfileBadges(profile: Profile): Promise<AchievementBadge[]> {
+  async getProfileBadges(profile: Profile, timeframe: 'weekly' | 'quarterly' | 'yearly' | 'lifetime' = 'lifetime'): Promise<AchievementBadge[]> {
     const allVisits = await this.getAllVisits();
     const allCalls = await this.getAllCalls();
     const allLeads = await this.getAllLeads();
+
+    const now = new Date();
+    const monday = getMonday(now).getTime();
     
-    // Group visits by date (YYYY-MM-DD)
+    // Quarter boundaries logic (simplified for mockup, 3 months each)
+    const currentMonth = now.getMonth();
+    const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
+    const quarterStart = new Date(now.getFullYear(), quarterStartMonth, 1).getTime();
+    
+    // Year boundary
+    const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+
+    // Filter data based on timeframe
+    const filterByTime = (timestamp: number) => {
+      if (timeframe === 'weekly') return timestamp >= monday;
+      if (timeframe === 'quarterly') return timestamp >= quarterStart;
+      if (timeframe === 'yearly') return timestamp >= yearStart;
+      return true; // lifetime
+    };
+
+    const visits = allVisits.filter(v => filterByTime(v.timestamp));
+    const calls = allCalls.filter(c => filterByTime(c.timestamp));
+    
+    // For leads, we'll check addedAt or just lifetime based on requirement
+    // Usually dealmaker metrics are based on when it was sold, but we'll approximate with `addedAt` for this mockup if needed,
+    // or just use visits/calls timestamps. Let's use `addedAt` for sold leads.
+    const leads = allLeads.filter(l => filterByTime(l.addedAt));
+
+    // Weekly metrics
+    const weeklyVisitsCount = visits.length;
+    const weeklyCallsCount = calls.length;
+    const weeklyHustlerUnlocked = weeklyVisitsCount >= 20;
+    const weeklyDialerUnlocked = weeklyCallsCount >= 100;
+
+    // Daily peaks (mostly relevant for lifetime/yearly, but we can compute it for the filtered data)
     const visitsByDate: { [date: string]: number } = {};
-    allVisits.forEach(v => {
+    visits.forEach(v => {
       const dateStr = new Date(v.timestamp).toISOString().split('T')[0];
       visitsByDate[dateStr] = (visitsByDate[dateStr] || 0) + 1;
     });
     const maxVisitsInADay = Object.keys(visitsByDate).length > 0 ? Math.max(...Object.values(visitsByDate)) : 0;
     const pacesetterUnlocked = maxVisitsInADay >= 10;
     
-    // Group calls by date (YYYY-MM-DD)
     const callsByDate: { [date: string]: number } = {};
-    allCalls.forEach(c => {
+    calls.forEach(c => {
       const dateStr = new Date(c.timestamp).toISOString().split('T')[0];
       callsByDate[dateStr] = (callsByDate[dateStr] || 0) + 1;
     });
@@ -771,7 +827,7 @@ export class SalesFlowDB {
     const callCrusaderUnlocked = maxCallsInADay >= 50;
 
     // Secured first sold account
-    const soldLeads = allLeads.filter(l => l.status === 'sold');
+    const soldLeads = leads.filter(l => l.status === 'sold');
     const closerUnlocked = soldLeads.length >= 1;
     
     // Total Sales Value
@@ -779,17 +835,40 @@ export class SalesFlowDB {
     const dealmakerUnlocked = totalSalesValue >= 5000;
     
     // Scout
-    const totalLeadsCount = allLeads.length;
+    const totalLeadsCount = leads.length;
     const scoutUnlocked = totalLeadsCount >= 100;
     
-    // Summit/Pres Club targets
+    // Targets
     const summitTarget = profile.quarterlySummitTarget || 9000;
     const summitUnlocked = totalSalesValue >= summitTarget;
     
     const presClubTarget = profile.quarterlyPresidentsClubTarget || 12000;
     const presClubUnlocked = totalSalesValue >= presClubTarget;
 
-    return [
+    const yearlyTarget = presClubTarget * 4;
+    const yearlyUnlocked = totalSalesValue >= yearlyTarget;
+
+    const badges: AchievementBadge[] = [
+      {
+        id: 'weekly_hustler',
+        title: 'Weekly Hustler',
+        description: 'Complete 20 visits in a single week',
+        icon: '🚀',
+        unlocked: weeklyHustlerUnlocked,
+        progressText: `${weeklyVisitsCount}/20 visits`,
+        progressPercent: Math.min(100, Math.round((weeklyVisitsCount / 20) * 100)),
+        timeframe: 'weekly'
+      },
+      {
+        id: 'weekly_dialer',
+        title: 'Weekly Dialer',
+        description: 'Make 100 calls in a single week',
+        icon: '📱',
+        unlocked: weeklyDialerUnlocked,
+        progressText: `${weeklyCallsCount}/100 calls`,
+        progressPercent: Math.min(100, Math.round((weeklyCallsCount / 100) * 100)),
+        timeframe: 'weekly'
+      },
       {
         id: 'pacesetter',
         title: 'Pacesetter',
@@ -797,7 +876,8 @@ export class SalesFlowDB {
         icon: '🏃',
         unlocked: pacesetterUnlocked,
         progressText: `${maxVisitsInADay}/10 visits`,
-        progressPercent: Math.min(100, Math.round((maxVisitsInADay / 10) * 100))
+        progressPercent: Math.min(100, Math.round((maxVisitsInADay / 10) * 100)),
+        timeframe: 'lifetime'
       },
       {
         id: 'call_crusader',
@@ -806,16 +886,18 @@ export class SalesFlowDB {
         icon: '📞',
         unlocked: callCrusaderUnlocked,
         progressText: `${maxCallsInADay}/50 calls`,
-        progressPercent: Math.min(100, Math.round((maxCallsInADay / 50) * 100))
+        progressPercent: Math.min(100, Math.round((maxCallsInADay / 50) * 100)),
+        timeframe: 'lifetime'
       },
       {
         id: 'closer',
         title: 'Closer',
-        description: 'Secure your first Sold (Closed Won) account',
+        description: 'Secure your first Sold account',
         icon: '🤝',
         unlocked: closerUnlocked,
         progressText: closerUnlocked ? 'Unlocked!' : '0/1 sold',
-        progressPercent: closerUnlocked ? 100 : 0
+        progressPercent: closerUnlocked ? 100 : 0,
+        timeframe: 'lifetime'
       },
       {
         id: 'dealmaker_elite',
@@ -824,7 +906,8 @@ export class SalesFlowDB {
         icon: '💎',
         unlocked: dealmakerUnlocked,
         progressText: `$${totalSalesValue.toLocaleString()}/$5,000`,
-        progressPercent: Math.min(100, Math.round((totalSalesValue / 5000) * 100))
+        progressPercent: Math.min(100, Math.round((totalSalesValue / 5000) * 100)),
+        timeframe: 'lifetime'
       },
       {
         id: 'radar_scout',
@@ -833,7 +916,8 @@ export class SalesFlowDB {
         icon: '📡',
         unlocked: scoutUnlocked,
         progressText: `${totalLeadsCount}/100 prospects`,
-        progressPercent: Math.min(100, Math.round((totalLeadsCount / 100) * 100))
+        progressPercent: Math.min(100, Math.round((totalLeadsCount / 100) * 100)),
+        timeframe: 'lifetime'
       },
       {
         id: 'summit_achiever',
@@ -842,7 +926,8 @@ export class SalesFlowDB {
         icon: '🏆',
         unlocked: summitUnlocked,
         progressText: `$${totalSalesValue.toLocaleString()}/$${summitTarget.toLocaleString()}`,
-        progressPercent: Math.min(100, Math.round((totalSalesValue / summitTarget) * 100))
+        progressPercent: Math.min(100, Math.round((totalSalesValue / summitTarget) * 100)),
+        timeframe: 'quarterly'
       },
       {
         id: 'presidents_club',
@@ -851,9 +936,25 @@ export class SalesFlowDB {
         icon: '👑',
         unlocked: presClubUnlocked,
         progressText: `$${totalSalesValue.toLocaleString()}/$${presClubTarget.toLocaleString()}`,
-        progressPercent: Math.min(100, Math.round((totalSalesValue / presClubTarget) * 100))
+        progressPercent: Math.min(100, Math.round((totalSalesValue / presClubTarget) * 100)),
+        timeframe: 'quarterly'
+      },
+      {
+        id: 'yearly_titan',
+        title: 'Titan of the Year',
+        description: 'Exceed the yearly sales target',
+        icon: '🌍',
+        unlocked: yearlyUnlocked,
+        progressText: `$${totalSalesValue.toLocaleString()}/$${yearlyTarget.toLocaleString()}`,
+        progressPercent: Math.min(100, Math.round((totalSalesValue / yearlyTarget) * 100)),
+        timeframe: 'yearly'
       }
     ];
+
+    // Always return lifetime badges if timeframe is lifetime, otherwise return only badges matching the timeframe
+    return timeframe === 'lifetime' 
+      ? badges.filter(b => b.timeframe === 'lifetime')
+      : badges.filter(b => b.timeframe === timeframe);
   }
 }
 
