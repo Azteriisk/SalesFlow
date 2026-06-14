@@ -11,7 +11,7 @@ Built with React, Vite, TypeScript, and standard CSS, it features a glassmorphic
 ### 1. Prospect Discover Swiper
 - Swipable card deck of Google Place listings within a custom search radius.
 - **Personalized Algorithm**: Dynamically calculates a match score (50%–99%) based on custom category weights, ratings, review counts, and Haversine distance.
-- **Prospect Drawer**: Expand details to see address, category, phone number, website, and a live review feed (fetched via Google Places API or mocked fallback).
+- **Prospect Drawer**: Expand details to see address, category, phone number, website, and a live review feed (fetched via Google Places API).
 
 ### 2. CRM Lead Manager (Pipeline)
 - Categorizes prospects by lifecycle status: *Pending OSVs*, *Phone Block*, *Appointments*, *Sold (Closed Won)*, *Snoozed*, and *Blacklisted*.
