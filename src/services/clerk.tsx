@@ -3,15 +3,17 @@ import * as MockClerk from './clerk-mock';
 
 // Decide whether to use mock or real Clerk
 // We use Mock Clerk if:
-// 1. We are running on localhost AND the Clerk key is a production live key (which Clerk blocks on localhost)
-// 2. Or if no Clerk key is set
+// 1. No valid Clerk key is provided at all (meaning the build has no environment variables set)
+// 2. Or we are on localhost AND the key is a live key (which Clerk blocks on localhost)
 const isLocalhost = typeof window !== 'undefined' && 
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
 const isLiveKey = publishableKey.startsWith('pk_live_');
+const isTestKey = publishableKey.startsWith('pk_test_');
+const hasValidKey = isLiveKey || isTestKey;
 
-export const useMock = isLocalhost && (isLiveKey || !publishableKey);
+export const useMock = !hasValidKey || (isLocalhost && isLiveKey);
 
 export const ClerkProvider = useMock ? MockClerk.ClerkProvider : RealClerk.ClerkProvider;
 export const SignedIn = useMock ? MockClerk.SignedIn : RealClerk.SignedIn;
