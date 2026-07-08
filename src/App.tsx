@@ -55,8 +55,8 @@ const App: React.FC = () => {
       setIsOffline(false);
       // Auto-sync offline changes with cloud when connection returns
       syncDataWithCloud().then(result => {
-        if (result.success && result.pulledCount > 0) {
-          console.log(`Auto-sync success: Pulled ${result.pulledCount} updates.`);
+        if (result.success && result.pulled > 0) {
+          console.log(`Auto-sync success: Pushed ${result.pushed}, Pulled ${result.pulled} updates.`);
         }
       }).catch(err => {
         console.error('Auto-sync failed on reconnect:', err);

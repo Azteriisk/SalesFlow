@@ -459,14 +459,14 @@ const Settings: React.FC<SettingsProps> = ({
     if (result.success) {
       setSyncStatus('success');
       setLastSynced(getLastSyncedTime());
-      if (result.pulledCount > 0) {
-        alert(`Cloud synchronization complete! Pulled ${result.pulledCount} updates from other team members on shared accounts.`);
+      if (result.pushed > 0 || result.pulled > 0) {
+        alert(`Cloud sync complete! ⬆️ Pushed ${result.pushed} records, ⬇️ Pulled ${result.pulled} updates.`);
       } else {
-        alert('Cloud synchronization complete! All offline logs are fully up to date.');
+        alert('Cloud synchronization complete! All data is fully up to date.');
       }
     } else {
       setSyncStatus('error');
-      alert('Synchronization failed. Please check network connectivity.');
+      alert(`Synchronization failed: ${result.error || 'Please check network connectivity.'}`);
     }
     setTimeout(() => setSyncStatus('idle'), 3000);
   };
