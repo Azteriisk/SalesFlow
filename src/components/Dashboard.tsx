@@ -583,7 +583,7 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
             onClick={() => {
               setActiveTab('settings');
               setTimeout(() => {
-                const element = document.getElementById('personal-stretch-goals');
+                const element = document.getElementById('personal-achievements');
                 if (element) {
                   element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }

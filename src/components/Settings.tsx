@@ -520,7 +520,7 @@ const Settings: React.FC<SettingsProps> = ({
     setPersValue(10);
     setPersTimeframe('weekly');
 
-    alert('Personal stretch goal added successfully!');
+    alert('Personal achievement added successfully!');
   };
 
   const handleDeletePersonalAchievement = async (id: string) => {
@@ -1617,15 +1617,15 @@ const Settings: React.FC<SettingsProps> = ({
         </div>
       )}
 
-      {/* 2.5 Personal Stretch Goals & Badges */}
-      <div id="personal-stretch-goals" className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* 2.5 Personal Achievements */}
+      <div id="personal-achievements" className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid hsl(var(--border-muted))', paddingBottom: '0.5rem' }}>
           <Compass style={{ width: '18px', height: '18px', color: 'hsl(var(--primary))' }} />
-          <span style={{ fontFamily: 'Outfit', fontWeight: 600 }}>Personal Stretch Goals & Badges</span>
+          <span style={{ fontFamily: 'Outfit', fontWeight: 600 }}>Personal Achievements</span>
         </div>
         
         <p style={{ fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', lineHeight: '1.4' }}>
-          Set your own personal milestones and stretch goals. When you hit the targets you define, you will earn your custom badges!
+          Set your own personal milestones and achievements. When you hit the targets you define, you will earn your custom achievements!
         </p>
 
         {/* Existing Personal Achievements */}
@@ -1779,7 +1779,7 @@ const Settings: React.FC<SettingsProps> = ({
             }}
           >
             <Plus style={{ width: '16px', height: '16px' }} />
-            Add Stretch Badge
+            Add Achievement
           </button>
         </form>
       </div>
