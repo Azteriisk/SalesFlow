@@ -49,6 +49,7 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
   const [qDaysPercent, setQDaysPercent] = useState<number>(0);
   const [fyDaysPercent, setFYDaysPercent] = useState<number>(0);
   const [quotaInfo, setQuotaInfo] = useState<{ qNumber: number } | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   // Map DOM reference
   const mapRef = useRef<HTMLDivElement>(null);
@@ -246,6 +247,11 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
 
     const initMap = async () => {
       try {
+        (window as any).gm_authFailure = () => {
+          console.warn("Google Maps auth failed (likely referrer restrictions on localhost). Falling back to simulated radar.");
+          setMapError("Active Territory Radar: Operating in Offline/Demo mode. Pins represent prospects in your pipeline.");
+        };
+
         await loadGoogleMapsScript();
         if (!(window as any).google || !(window as any).google.maps) return;
 
@@ -368,6 +374,7 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
 
       } catch (err) {
         console.error("Map load error:", err);
+        setMapError("Demo Mode: Google Maps API key missing. Displaying active territory radar.");
       }
     };
 
@@ -395,6 +402,37 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
   const getPercentage = (value: number, target: number) => {
     if (target === 0) return 0;
     return Math.min(Math.round((value / target) * 100), 100);
+  };
+
+  const renderSimulatedMapPins = () => {
+    return leads.map((lead) => {
+      if (lead.status === 'never_visit' || lead.status === 'no_value') return null;
+
+      const latDiff = lead.latitude - location.latitude;
+      const lngDiff = lead.longitude - location.longitude;
+      
+      const maxDiff = 0.04;
+      const x = 150 + (lngDiff / maxDiff) * 120;
+      const y = 150 - (latDiff / maxDiff) * 120;
+      
+      if (x < 15 || x > 285 || y < 15 || y > 285) return null;
+
+      let pinColor = 'hsl(var(--primary))'; 
+      if (lead.status === 'phone_block') pinColor = 'hsl(var(--warning))'; 
+      if (lead.status === 'appointment_set') pinColor = 'hsl(var(--secondary))'; 
+      if (lead.status === 'sold') pinColor = 'hsl(var(--success))'; 
+      if (lead.status === 'snoozed_osv') pinColor = 'hsl(var(--text-muted))'; 
+
+      return (
+        <g key={lead.id} style={{ cursor: 'pointer' }} onClick={() => alert(`${lead.name}\n${lead.address}\nStatus: ${lead.status.replace('_', ' ')}`)}>
+          <circle cx={x} cy={y} r={6} fill={pinColor} opacity={0.35}>
+            <animate attributeName="r" values="4;9;4" dur="2s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
+          </circle>
+          <circle cx={x} cy={y} r={3.5} fill={pinColor} stroke="#ffffff" strokeWidth={1} />
+        </g>
+      );
+    });
   };
 
   if (loading) {
@@ -595,6 +633,22 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
               }}
               title={badge.description}
             >
+              {badge.isCustom && (
+                <span style={{ 
+                  position: 'absolute', 
+                  top: '4px', 
+                  right: '4px', 
+                  fontSize: '0.55rem', 
+                  background: 'hsl(var(--primary) / 0.15)', 
+                  color: 'hsl(var(--primary))', 
+                  padding: '1px 4px', 
+                  borderRadius: '4px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase'
+                }}>
+                  Co.
+                </span>
+              )}
               {/* Badge Icon Circular wrapper */}
               <div 
                 style={{
@@ -648,7 +702,59 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
             <MapIcon style={{ width: '18px', height: '18px', color: 'hsl(var(--secondary))' }} />
             <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '0.95rem' }}>Territory Map</span>
           </div>
-          <div className="map-panel" ref={mapRef}>
+          {mapError && (
+            <div style={{
+              width: '100%',
+              height: '320px',
+              background: 'radial-gradient(circle, hsl(var(--bg-tertiary)) 0%, hsl(var(--bg-primary)) 100%)',
+              position: 'relative',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderBottom: '1px solid hsl(var(--border-muted))'
+            }}>
+              <svg width="280" height="280" viewBox="0 0 300 300" style={{ position: 'absolute', top: 10, left: 'calc(50% - 140px)' }}>
+                <circle cx="150" cy="150" r="140" fill="none" stroke="hsla(var(--primary) / 0.15)" strokeWidth="1" strokeDasharray="4 4" />
+                <circle cx="150" cy="150" r="100" fill="none" stroke="hsla(var(--primary) / 0.15)" strokeWidth="1" />
+                <circle cx="150" cy="150" r="60" fill="none" stroke="hsla(var(--primary) / 0.15)" strokeWidth="1" />
+                <line x1="150" y1="10" x2="150" y2="290" stroke="hsla(var(--primary) / 0.1)" strokeWidth="1" />
+                <line x1="10" y1="150" x2="290" y2="150" stroke="hsla(var(--primary) / 0.1)" strokeWidth="1" />
+                
+                {/* Center User Location Pin */}
+                <circle cx="150" cy="150" r="8" fill="hsl(var(--success))" opacity="0.3">
+                  <animate attributeName="r" values="5;12;5" dur="1.8s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="150" cy="150" r="4" fill="hsl(var(--success))" stroke="#fff" strokeWidth="1.5" />
+                
+                {/* Leads Pins */}
+                {renderSimulatedMapPins()}
+              </svg>
+              
+              <div style={{
+                position: 'absolute',
+                bottom: '10px',
+                left: '10px',
+                right: '10px',
+                background: 'hsla(var(--bg-secondary) / 0.85)',
+                backdropFilter: 'blur(4px)',
+                padding: '0.35rem 0.5rem',
+                borderRadius: '6px',
+                fontSize: '0.72rem',
+                textAlign: 'center',
+                color: 'hsl(var(--text-secondary))',
+                border: '1px solid hsl(var(--border-muted))'
+              }}>
+                🛰️ Active Territory Radar: Operating in Offline/Demo mode. Pins represent prospects in your pipeline.
+              </div>
+            </div>
+          )}
+          <div 
+            className="map-panel" 
+            ref={mapRef}
+            style={{ display: mapError ? 'none' : 'block' }}
+          >
             <div className="leaflet-placeholder">Loading interactive map...</div>
           </div>
         </div>

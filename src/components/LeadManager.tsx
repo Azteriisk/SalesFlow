@@ -17,8 +17,13 @@ import {
   Plus,
   DollarSign,
   Trash2,
-  Camera
+  Camera,
+  Mic,
+  MicOff
 } from 'lucide-react';
+import { createWorker } from 'tesseract.js';
+import { Capacitor } from '@capacitor/core';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { dbService, getWeekId } from '../services/db';
 import type { Lead, LeadStatus, Visit, Call, Quote, EmailLog, Profile } from '../services/db';
 import { triggerConfetti } from '../services/confetti';
@@ -90,6 +95,22 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [goalAchievedModal, setGoalAchievedModal] = useState<string | null>(null);
+
+  // Custom additions for OSV Sorting, Swiping, and Voice/OCR Scanner
+  const [sortBy, setSortBy] = useState<'closest' | 'newest' | 'oldest'>('closest');
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+
+  const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState<boolean>(false);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+
+  const [newLeadName, setNewLeadName] = useState<string>('');
+  const [newLeadPhone, setNewLeadPhone] = useState<string>('');
+  const [newLeadAddress, setNewLeadAddress] = useState<string>('');
+  const [newLeadDecisionMaker, setNewLeadDecisionMaker] = useState<string>('');
+  const [newLeadGatekeeper, setNewLeadGatekeeper] = useState<string>('');
+  const [newLeadCategory, setNewLeadCategory] = useState<string>('General Business');
   
   // Appointment sub-state
   const [apptDate, setApptDate] = useState<string>('');
@@ -209,6 +230,187 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
     fetchLogs();
   }, [selectedLead]);
 
+  // Distance calculator using Haversine formula
+  const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Web Speech dictation trigger
+  const toggleListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice dictation is not supported in this browser. Please use Chrome, Safari, or a native WebView.");
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onresult = (event: any) => {
+      const speechToText = event.results[0][0].transcript;
+      setVisitNotes(prev => prev ? `${prev} ${speechToText}` : speechToText);
+    };
+
+    recognition.start();
+  };
+
+  // Mobile Touch Swiping Gestures
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    setTouchStart({ x: touch.clientX, y: touch.clientY });
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent, lead: Lead) => {
+    if (!touchStart) return;
+    const touch = e.changedTouches[0];
+    const diffX = touch.clientX - touchStart.x;
+    const diffY = touch.clientY - touchStart.y;
+
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 75) {
+      if (diffX > 0) {
+        // Swipe Right: Call Lead
+        if (lead.phone) {
+          playSound('click');
+          window.location.href = `tel:${lead.phone}`;
+        } else {
+          alert(`No phone number recorded for ${lead.name}`);
+        }
+      } else {
+        // Swipe Left: Log Visit drawer
+        playSound('click');
+        handleSelectLead(lead);
+      }
+    }
+    setTouchStart(null);
+  };
+
+  // Tesseract WebAssembly client-side card OCR scan
+  const handleScanCard = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    setIsScanning(true);
+    setScannerError(null);
+
+    try {
+      const worker = await createWorker('eng');
+      const ret = await worker.recognize(file);
+      await worker.terminate();
+
+      const text = ret.data.text;
+      if (!text || !text.trim()) {
+        throw new Error("No readable text found on the card.");
+      }
+
+      // Match Phone Number
+      const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
+      const phoneMatch = text.match(phoneRegex);
+      if (phoneMatch && phoneMatch.length > 0) {
+        setNewLeadPhone(phoneMatch[0]);
+      }
+
+      // Match email address if any
+      const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+      const emailMatch = text.match(emailRegex);
+      if (emailMatch && emailMatch.length > 0) {
+        setNewLeadDecisionMaker(`Contact (Email: ${emailMatch[0]})`);
+      }
+
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length > 0) {
+        setNewLeadName(lines[0]);
+      }
+      
+      const addressLine = lines.find(l => 
+        l.toLowerCase().includes('st') || 
+        l.toLowerCase().includes('ave') || 
+        l.toLowerCase().includes('rd') || 
+        l.toLowerCase().includes('blvd') || 
+        l.toLowerCase().includes('suite') || 
+        l.toLowerCase().includes('drive')
+      );
+      if (addressLine) {
+        setNewLeadAddress(addressLine);
+      }
+
+      alert("Business card parsed successfully! Review the prefilled details below.");
+    } catch (err: any) {
+      console.error("OCR parse failed:", err);
+      setScannerError(err.message || "Failed to scan business card.");
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleCreateCustomLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLeadName.trim() || !newLeadAddress.trim()) {
+      alert("Name and Address are required fields.");
+      return;
+    }
+
+    try {
+      const newLead: Lead = {
+        id: `custom_lead_${Date.now()}`,
+        name: newLeadName.trim(),
+        address: newLeadAddress.trim(),
+        phone: newLeadPhone.trim() || undefined,
+        decisionMaker: newLeadDecisionMaker.trim() || undefined,
+        gatekeeper: newLeadGatekeeper.trim() || undefined,
+        latitude: _location?.latitude || 37.7749,
+        longitude: _location?.longitude || -122.4194,
+        category: newLeadCategory,
+        status: 'pending_osv',
+        addedAt: Date.now()
+      };
+
+      await dbService.saveLead(newLead);
+      playSound('achievement');
+
+      setIsAddLeadModalOpen(false);
+      setNewLeadName('');
+      setNewLeadPhone('');
+      setNewLeadAddress('');
+      setNewLeadDecisionMaker('');
+      setNewLeadGatekeeper('');
+      setNewLeadCategory('General Business');
+
+      // Reload
+      loadLeads();
+    } catch (err) {
+      console.error("Failed to save custom lead", err);
+      alert("Failed to save custom lead.");
+    }
+  };
+
   // Filter and search computation
   const filteredLeads = (searchQuery.trim() !== '' ? allLeadsForSearch : leads).filter(lead => {
     // If onlySearchWithActivities is checked, lead must have activities
@@ -226,6 +428,24 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
     const gkMatch = lead.gatekeeper ? lead.gatekeeper.toLowerCase().includes(q) : false;
 
     return nameMatch || phoneMatch || addressMatch || dmMatch || gkMatch;
+  });
+
+  const sortedLeads = [...filteredLeads].sort((a, b) => {
+    if (sortBy === 'newest') {
+      return (b.addedAt || 0) - (a.addedAt || 0);
+    }
+    if (sortBy === 'oldest') {
+      return (a.addedAt || 0) - (b.addedAt || 0);
+    }
+    if (sortBy === 'closest') {
+      if (!_location || !_location.latitude || !_location.longitude) return 0;
+      if (!a.latitude || !a.longitude) return 1;
+      if (!b.latitude || !b.longitude) return -1;
+      const distA = getDistance(_location.latitude, _location.longitude, a.latitude, a.longitude);
+      const distB = getDistance(_location.latitude, _location.longitude, b.latitude, b.longitude);
+      return distA - distB;
+    }
+    return 0;
   });
 
   const handleSelectLead = (lead: Lead) => {
@@ -373,6 +593,23 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
 
     setAttachedImages(prev => [...prev, ...compressedList]);
     e.target.value = '';
+  };
+
+  const handleNativeCameraCapture = async () => {
+    try {
+      const image = await CapCamera.getPhoto({
+        quality: 70,
+        allowEditing: false,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Prompt
+      });
+      if (image && image.base64String) {
+        const base64Image = `data:image/jpeg;base64,${image.base64String}`;
+        setAttachedImages(prev => [...prev, base64Image]);
+      }
+    } catch (err) {
+      console.warn('Native camera capture failed or cancelled:', err);
+    }
   };
 
   const handleRemoveImage = (index: number) => {
@@ -528,8 +765,30 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%' }}>
       {/* Search Header */}
-      <div className="lead-manager-header">
-        <h2 style={{ fontFamily: 'Outfit', fontSize: '1.35rem' }}>Sales Pipeline</h2>
+      <div className="lead-manager-header" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <h2 style={{ fontFamily: 'Outfit', fontSize: '1.35rem', margin: 0 }}>Sales Pipeline</h2>
+          <button 
+            type="button" 
+            onClick={() => setIsAddLeadModalOpen(true)}
+            className="btn-secondary" 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.3rem', 
+              padding: '0.4rem 0.75rem', 
+              fontSize: '0.78rem',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              border: '1px solid hsl(var(--border-muted))',
+              background: 'hsl(var(--bg-tertiary))',
+              color: 'hsl(var(--text-primary))'
+            }}
+          >
+            <Plus style={{ width: '13px', height: '13px' }} />
+            Add Custom Lead
+          </button>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', width: '100%' }}>
           <div className="search-input-wrapper">
             <Search />
@@ -541,6 +800,30 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', width: '100%', marginTop: '0.25rem' }}>
+            <span style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', fontWeight: 600 }}>SORT BY:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              style={{
+                background: 'hsl(var(--bg-primary))',
+                border: '1px solid hsl(var(--border-muted))',
+                color: 'hsl(var(--primary))',
+                fontSize: '0.76rem',
+                fontWeight: 700,
+                borderRadius: '6px',
+                padding: '0.15rem 0.40rem',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              <option value="closest">Closest Location (GPS)</option>
+              <option value="newest">Newest Added</option>
+              <option value="oldest">Oldest Added</option>
+            </select>
+          </div>
+
           {searchQuery.trim() !== '' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.3rem', fontSize: '0.8rem', color: 'hsl(var(--text-secondary))' }}>
               <input 
@@ -595,7 +878,7 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
       )}
 
       {/* List results */}
-      {filteredLeads.length === 0 ? (
+      {sortedLeads.length === 0 ? (
         <div className="empty-state">
           <Users />
           <h3>Pipeline Empty</h3>
@@ -603,11 +886,14 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
         </div>
       ) : (
         <div className="lead-list">
-          {filteredLeads.map(lead => (
+          {sortedLeads.map(lead => (
             <div 
               key={lead.id} 
               className="lead-list-item"
               onClick={() => handleSelectLead(lead)}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={(e) => handleTouchEnd(e, lead)}
+              style={{ touchAction: 'pan-y', cursor: 'pointer', position: 'relative' }}
             >
               <div className="lead-info">
                 <span className="lead-name">{lead.name}</span>
@@ -968,7 +1254,39 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
                     )}
 
                     <div className="form-group">
-                      <label>Visit Notes / Comments</label>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                        <label style={{ margin: 0 }}>Visit Notes / Comments</label>
+                        <button
+                          type="button"
+                          onClick={toggleListening}
+                          style={{
+                            background: isListening ? 'hsl(var(--error) / 0.15)' : 'hsla(var(--primary) / 0.15)',
+                            border: isListening ? '1px solid hsl(var(--error))' : '1px solid hsla(var(--primary) / 0.4)',
+                            borderRadius: '16px',
+                            color: isListening ? 'hsl(var(--error))' : 'hsl(var(--primary))',
+                            fontSize: '0.74rem',
+                            fontWeight: 600,
+                            padding: '0.2rem 0.65rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {isListening ? (
+                            <>
+                              <MicOff style={{ width: '12px', height: '12px', color: 'hsl(var(--error))' }} />
+                              Stop Listening
+                            </>
+                          ) : (
+                            <>
+                              <Mic style={{ width: '12px', height: '12px', color: 'hsl(var(--primary))' }} />
+                              Dictate Notes
+                            </>
+                          )}
+                        </button>
+                      </div>
                       <textarea 
                         className="form-control" 
                         rows={3} 
@@ -985,29 +1303,54 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
                         <span style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))' }}>Optional</span>
                       </label>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <label className="btn-secondary" style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          gap: '0.4rem', 
-                          padding: '0.45rem 0.75rem', 
-                          fontSize: '0.8rem',
-                          cursor: 'pointer',
-                          width: 'fit-content',
-                          borderRadius: '6px',
-                          border: '1px solid hsl(var(--border-muted))',
-                          background: 'hsl(var(--bg-tertiary))'
-                        }}>
-                          <Camera style={{ width: '15px', height: '15px' }} />
-                          Add Photo
-                          <input 
-                            type="file" 
-                            accept="image/*" 
-                            multiple 
-                            onChange={handleImageChange} 
-                            style={{ display: 'none' }} 
-                          />
-                        </label>
+                        {Capacitor.isNativePlatform() ? (
+                          <button 
+                            type="button"
+                            onClick={handleNativeCameraCapture}
+                            className="btn-secondary"
+                            style={{ 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              gap: '0.4rem', 
+                              padding: '0.45rem 0.75rem', 
+                              fontSize: '0.8rem',
+                              cursor: 'pointer',
+                              width: 'fit-content',
+                              borderRadius: '6px',
+                              border: '1px solid hsl(var(--border-muted))',
+                              background: 'hsl(var(--bg-tertiary))',
+                              color: 'hsl(var(--text-primary))'
+                            }}
+                          >
+                            <Camera style={{ width: '15px', height: '15px' }} />
+                            Add Photo
+                          </button>
+                        ) : (
+                          <label className="btn-secondary" style={{ 
+                            display: 'inline-flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            gap: '0.4rem', 
+                            padding: '0.45rem 0.75rem', 
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            width: 'fit-content',
+                            borderRadius: '6px',
+                            border: '1px solid hsl(var(--border-muted))',
+                            background: 'hsl(var(--bg-tertiary))'
+                          }}>
+                            <Camera style={{ width: '15px', height: '15px' }} />
+                            Add Photo
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              multiple 
+                              onChange={handleImageChange} 
+                              style={{ display: 'none' }} 
+                            />
+                          </label>
+                        )}
                         
                         {attachedImages.length > 0 && (
                           <div style={{ 
@@ -1320,6 +1663,210 @@ const LeadManager: React.FC<LeadManagerProps> = ({ location: _location }) => {
             >
               Awesome
             </button>
+          </div>
+        </div>
+      )}
+      {/* Add Custom Lead Modal */}
+      {isAddLeadModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.8)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          padding: '1rem'
+        }} onClick={() => setIsAddLeadModalOpen(false)}>
+          <div 
+            className="glass-panel" 
+            style={{
+              width: '100%',
+              maxWidth: '450px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+              animation: 'scaleUp 0.25s ease-out'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid hsl(var(--border-muted))', paddingBottom: '0.5rem' }}>
+              <h3 style={{ margin: 0, fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                👤 Add Custom Lead
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setIsAddLeadModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: 'hsl(var(--text-secondary))', cursor: 'pointer', padding: 0 }}
+              >
+                <X style={{ width: '20px', height: '20px' }} />
+              </button>
+            </div>
+
+            {/* OCR Business Card Scanner Option */}
+            <div style={{
+              background: 'linear-gradient(135deg, hsla(var(--primary-glow) / 0.1) 0%, hsla(var(--secondary) / 0.05) 100%)',
+              border: '1px solid hsla(var(--primary) / 0.2)',
+              borderRadius: '10px',
+              padding: '0.75rem',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem'
+            }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--text-primary))' }}>
+                ⚡ Auto-Fill from Business Card
+              </span>
+              <label 
+                className="btn-secondary" 
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.78rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.3rem',
+                  cursor: isScanning ? 'default' : 'pointer',
+                  opacity: isScanning ? 0.7 : 1,
+                  background: 'hsl(var(--bg-tertiary))',
+                  border: '1px solid hsl(var(--border-muted))',
+                  borderRadius: '6px',
+                  width: 'fit-content',
+                  margin: '0 auto'
+                }}
+              >
+                <Camera style={{ width: '14px', height: '14px' }} />
+                {isScanning ? "Scanning Card..." : "Scan Business Card"}
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  onChange={handleScanCard} 
+                  disabled={isScanning}
+                  style={{ display: 'none' }} 
+                />
+              </label>
+              
+              {isScanning && (
+                <div style={{ fontSize: '0.72rem', color: 'hsl(var(--secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+                  <div className="spinner" style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: 'hsl(var(--secondary))', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  Running local client-side OCR...
+                </div>
+              )}
+
+              {scannerError && (
+                <span style={{ fontSize: '0.72rem', color: 'hsl(var(--error))' }}>
+                  ⚠️ {scannerError}
+                </span>
+              )}
+            </div>
+
+            {/* Manual Form */}
+            <form onSubmit={handleCreateCustomLead} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="form-group">
+                <label style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>Business/Lead Name *</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  required 
+                  placeholder="e.g. Acme Industrial Repairs"
+                  value={newLeadName}
+                  onChange={(e) => setNewLeadName(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>Address *</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  required 
+                  placeholder="e.g. 123 Main St, Suite A"
+                  value={newLeadAddress}
+                  onChange={(e) => setNewLeadAddress(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>Phone Number</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  placeholder="e.g. 555-0199"
+                  value={newLeadPhone}
+                  onChange={(e) => setNewLeadPhone(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>Decision Maker</label>
+                  <input 
+                    type="text" 
+                    className="form-control" 
+                    placeholder="e.g. Jane Doe"
+                    value={newLeadDecisionMaker}
+                    onChange={(e) => setNewLeadDecisionMaker(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>Gatekeeper</label>
+                  <input 
+                    type="text" 
+                    className="form-control" 
+                    placeholder="e.g. Bob"
+                    value={newLeadGatekeeper}
+                    onChange={(e) => setNewLeadGatekeeper(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>Target Category</label>
+                <select 
+                  className="form-control"
+                  value={newLeadCategory}
+                  onChange={(e) => setNewLeadCategory(e.target.value)}
+                  style={{
+                    background: 'hsl(var(--bg-primary))',
+                    border: '1px solid hsl(var(--border-muted))',
+                    borderRadius: '8px',
+                    color: 'hsl(var(--text-primary))',
+                    padding: '0.5rem'
+                  }}
+                >
+                  <option value="General Business">General Business</option>
+                  <option value="Uniforms & Linen">Uniforms & Linen</option>
+                  <option value="Medical & Healthcare">Medical & Healthcare</option>
+                  <option value="Janitorial & Cleaning">Janitorial & Cleaning</option>
+                  <option value="SaaS & Office Tech">SaaS & Office Tech</option>
+                  <option value="Contractor Trades">Contractor Trades</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button 
+                  type="submit" 
+                  className="btn-primary" 
+                  style={{ flex: 1, padding: '0.5rem 1rem' }}
+                >
+                  Save Custom Lead
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setIsAddLeadModalOpen(false)}
+                  className="btn-secondary" 
+                  style={{ flex: 1, padding: '0.5rem 1rem', background: 'transparent', border: '1px solid hsl(var(--border-muted))' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

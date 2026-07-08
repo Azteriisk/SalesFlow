@@ -60,21 +60,47 @@ export function loadGoogleMapsScript(): Promise<void> {
   return googleMapsLoadedPromise;
 }
 
-export const INDUSTRY_CATEGORIES = [
+export interface TargetCategory {
+  id: string;
+  label: string;
+  query: string;
+  isCustom?: boolean;
+}
+
+export const INDUSTRY_CATEGORIES: TargetCategory[] = [
+  // Industrial / Auto / Construction (existing)
   { id: 'auto_repair', label: 'Auto Repair', query: 'auto repair shop mechanic' },
   { id: 'warehouse', label: 'Warehouse & Logistics', query: 'warehouse logistics distribution center' },
   { id: 'restaurant', label: 'Restaurants', query: 'restaurant cafe dining' },
   { id: 'manufacturing', label: 'Manufacturing & Steel Mills', query: 'steel mill manufacturing factory industrial' },
   { id: 'waste_management', label: 'Waste Management', query: 'waste management recycling sanitation' },
   { id: 'contractor', label: 'HVAC, Plumbing & Electric', query: 'hvac contractor plumber electrician' },
-  { id: 'construction', label: 'Construction & Landscaping', query: 'construction company landscaper general contractor' }
+  { id: 'construction', label: 'Construction & Landscaping', query: 'construction company landscaper general contractor' },
+  
+  // Medical & Healthcare (new)
+  { id: 'medical_clinic', label: 'Medical Clinics & Offices', query: 'medical clinic doctor office pediatrician urgent care' },
+  { id: 'dental_clinic', label: 'Dental Clinics', query: 'dentist dental clinic dental office' },
+  { id: 'veterinary_clinic', label: 'Veterinary Clinics', query: 'veterinary clinic animal hospital vet office' },
+  { id: 'pharmacy', label: 'Pharmacies', query: 'pharmacy drugstore local pharmacy' },
+  { id: 'nursing_home', label: 'Nursing Homes & Senior Care', query: 'nursing home assisted living senior care retirement' },
+  
+  // Corporate, Offices & Retail (new)
+  { id: 'corporate_office', label: 'Corporate Offices', query: 'corporate office business park office building headquarters' },
+  { id: 'school', label: 'Schools & Daycares', query: 'school academy daycare preschool training center' },
+  { id: 'retail_store', label: 'Retail & Stores', query: 'retail store boutique shop department store supermarket' },
+  { id: 'gym', label: 'Gyms & Fitness', query: 'gym fitness center health club yoga crossfit' },
+  { id: 'laundromat', label: 'Laundromats & Dry Cleaning', query: 'laundromat dry cleaner laundry service' },
+  { id: 'car_wash', label: 'Car Washes & Detailing', query: 'car wash auto detailing detailing service' },
+  { id: 'law_firm', label: 'Law & Legal Offices', query: 'law firm attorney lawyer' },
+  { id: 'accounting', label: 'Accounting & CPA Firms', query: 'accounting office CPA accountant' }
 ];
 
 export async function searchNearbyPlaces(
   lat: number,
   lng: number,
   radiusKm: number,
-  categoryIds: string[]
+  categoryIds: string[],
+  customCategories?: TargetCategory[]
 ): Promise<PlaceResult[]> {
   await loadGoogleMapsScript();
 
@@ -89,7 +115,8 @@ export async function searchNearbyPlaces(
   const radiusInMeters = radiusKm * 1000;
   const location = new (window as any).google.maps.LatLng(lat, lng);
 
-  const activeCategories = INDUSTRY_CATEGORIES.filter(c => categoryIds.includes(c.id));
+  const categoriesList = customCategories || INDUSTRY_CATEGORIES;
+  const activeCategories = categoriesList.filter(c => categoryIds.includes(c.id));
   if (activeCategories.length === 0) return [];
 
   const allResultsMap = new Map<string, PlaceResult>();

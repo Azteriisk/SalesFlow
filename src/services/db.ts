@@ -1,4 +1,6 @@
 import { getEncryptionKey, encryptField, decryptField } from './crypto';
+import { INDUSTRY_CATEGORIES } from './places';
+import type { TargetCategory } from './places';
 
 export interface Profile {
   id: string; // "user_profile"
@@ -15,6 +17,20 @@ export interface Profile {
   organizationId?: string; // Links this profile to a company
   clerkUserId?: string; // Clerk User ID for auth and E2E encryption
   jobType?: string; // Links profile to a role for industry recommendations
+  companyName?: string; // User company name
+  categories?: TargetCategory[]; // Dynamic target categories list
+  callingScript?: string; // Custom script for making phone calls
+}
+
+export interface CustomAchievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  targetMetric: 'visits' | 'calls' | 'revenue' | 'appointments' | 'prospects';
+  targetValue: number;
+  timeframe: 'weekly' | 'quarterly' | 'yearly' | 'lifetime';
+  createdAt: number;
 }
 
 export interface Organization {
@@ -25,6 +41,7 @@ export interface Organization {
   defaultTargets: DailyTargets;
   defaultIndustries?: string[]; // Custom company target industries
   achievementConfig?: any; // Custom badges or toggles
+  customAchievements?: CustomAchievement[]; // Custom company achievements
   logoUrl?: string;
 }
 
@@ -43,6 +60,7 @@ export interface AchievementBadge {
   progressText: string;
   progressPercent: number;
   timeframe: 'weekly' | 'quarterly' | 'yearly' | 'lifetime';
+  isCustom?: boolean;
 }
 
 export interface TodoItem {
@@ -410,13 +428,27 @@ export class SalesFlowDB {
         const request = store.get('user_profile');
         request.onsuccess = () => {
           if (request.result) {
-            resolve(request.result);
+            const profile = request.result;
+            let updated = false;
+            if (!profile.categories) {
+              profile.categories = INDUSTRY_CATEGORIES;
+              updated = true;
+            }
+            if (profile.companyName === undefined) {
+              profile.companyName = '';
+              updated = true;
+            }
+            if (updated) {
+              this.saveProfile(profile).then(() => resolve(profile));
+            } else {
+              resolve(profile);
+            }
           } else {
             // Default Profile
             const defaultProfile: Profile = {
               id: 'user_profile',
               repName: 'Sales Representative',
-              industryFilters: ['auto_repair', 'warehouse', 'restaurant', 'contractor', 'waste_management'],
+              industryFilters: ['auto_repair', 'restaurant', 'warehouse', 'contractor', 'waste_management'],
               searchRadiusKm: 15,
               fiscalYearStart: '2026-06-01',
               quarterlySummitTarget: 9000,
@@ -425,7 +457,10 @@ export class SalesFlowDB {
               notificationsEnabled: false,
               appointmentRemindersEnabled: true,
               motivationRemindersEnabled: true,
-              jobType: 'General Commercial Representative'
+              jobType: 'General Commercial Representative',
+              companyName: '',
+              categories: INDUSTRY_CATEGORIES,
+              callingScript: ''
             };
             this.saveProfile(defaultProfile).then(() => resolve(defaultProfile));
           }
@@ -870,15 +905,14 @@ export class SalesFlowDB {
         const defaultProfile: Profile = {
           id: 'user_profile',
           repName: 'Sales Representative',
-          industryFilters: ['auto_repair', 'warehouse', 'restaurant', 'contractor', 'waste_management'],
+          industryFilters: ['auto_repair', 'restaurant', 'warehouse', 'contractor', 'waste_management'],
           searchRadiusKm: 15,
-          fiscalYearStart: '2026-06-01',
-          quarterlySummitTarget: 9000,
-          quarterlyPresidentsClubTarget: 12000,
           soundEffectsEnabled: true,
           notificationsEnabled: false,
           appointmentRemindersEnabled: true,
-          motivationRemindersEnabled: true
+          motivationRemindersEnabled: true,
+          companyName: '',
+          categories: INDUSTRY_CATEGORIES
         };
         this.saveProfile(defaultProfile).then(() => resolve());
       };
@@ -1024,6 +1058,45 @@ export class SalesFlowDB {
     const yearlyTarget = presClubTarget * 4;
     const yearlyUnlocked = totalSalesValue >= yearlyTarget;
 
+    // Realistic Metrics Calculations
+    // 1. Pipeline Builder (10 prospects added in a day)
+    const leadsByDate: { [date: string]: number } = {};
+    leads.forEach(l => {
+      const dateStr = new Date(l.addedAt).toISOString().split('T')[0];
+      leadsByDate[dateStr] = (leadsByDate[dateStr] || 0) + 1;
+    });
+    const maxLeadsAddedInADay = Object.keys(leadsByDate).length > 0 ? Math.max(...Object.values(leadsByDate)) : 0;
+    const pipelineBuilderUnlocked = maxLeadsAddedInADay >= 10;
+
+    // 2. Appointment Machine (5 appointments in a single week)
+    const weeklyAppts = visits.filter(v => v.outcome === 'appointment_set').length + calls.filter(c => c.outcome === 'appointment_set').length;
+    const apptMachineUnlocked = weeklyAppts >= 5;
+
+    // 3. Conversion Master (10 appointments overall - lifetime)
+    const lifetimeAppts = allVisits.filter(v => v.outcome === 'appointment_set').length + allCalls.filter(c => c.outcome === 'appointment_set').length;
+    const conversionMasterUnlocked = lifetimeAppts >= 10;
+
+    // 4. High Roller (Secure a single sale worth > $2,500)
+    const maxDealValue = soldLeads.length > 0 ? Math.max(...soldLeads.map(l => l.dealValue || 0)) : 0;
+    const highRollerUnlocked = maxDealValue >= 2500;
+
+    // 5. Gatekeeper Charmer (Log 10 visits/calls where a gatekeeper was successfully spoken with and logged)
+    const gatekeeperVisits = visits.filter(v => v.spokeWith && !v.isDecisionMaker).length;
+    const gatekeeperCalls = calls.filter(c => c.outcome === 'gatekeeper_blocked').length;
+    const totalGatekeepersSpoken = gatekeeperVisits + gatekeeperCalls;
+    const gatekeeperCharmerUnlocked = totalGatekeepersSpoken >= 10;
+
+    // 6. Tenacity Award (Follow up/visit the same lead 3+ times before locking in outcome)
+    const interactionsByLead: { [leadId: string]: number } = {};
+    allVisits.forEach(v => {
+      interactionsByLead[v.leadId] = (interactionsByLead[v.leadId] || 0) + 1;
+    });
+    allCalls.forEach(c => {
+      interactionsByLead[c.leadId] = (interactionsByLead[c.leadId] || 0) + 1;
+    });
+    const maxInteractionsOnALead = Object.keys(interactionsByLead).length > 0 ? Math.max(...Object.values(interactionsByLead)) : 0;
+    const tenacityAwardUnlocked = maxInteractionsOnALead >= 3;
+
     const badges: AchievementBadge[] = [
       {
         id: 'weekly_hustler',
@@ -1124,8 +1197,123 @@ export class SalesFlowDB {
         progressText: `$${totalSalesValue.toLocaleString()}/$${yearlyTarget.toLocaleString()}`,
         progressPercent: Math.min(100, Math.round((totalSalesValue / yearlyTarget) * 100)),
         timeframe: 'yearly'
+      },
+      // New Realistic Achievements
+      {
+        id: 'pipeline_builder',
+        title: 'Pipeline Builder',
+        description: 'Add 10 new prospects in a single day',
+        icon: '🏗️',
+        unlocked: pipelineBuilderUnlocked,
+        progressText: `${maxLeadsAddedInADay}/10 prospects`,
+        progressPercent: Math.min(100, Math.round((maxLeadsAddedInADay / 10) * 100)),
+        timeframe: 'lifetime'
+      },
+      {
+        id: 'appt_machine',
+        title: 'Appointment Machine',
+        description: 'Book 5 appointments in a single week',
+        icon: '📆',
+        unlocked: apptMachineUnlocked,
+        progressText: `${weeklyAppts}/5 appointments`,
+        progressPercent: Math.min(100, Math.round((weeklyAppts / 5) * 100)),
+        timeframe: 'weekly'
+      },
+      {
+        id: 'conversion_master',
+        title: 'Conversion Master',
+        description: 'Book 10 appointments overall',
+        icon: '🎓',
+        unlocked: conversionMasterUnlocked,
+        progressText: `${lifetimeAppts}/10 appointments`,
+        progressPercent: Math.min(100, Math.round((lifetimeAppts / 10) * 100)),
+        timeframe: 'lifetime'
+      },
+      {
+        id: 'high_roller',
+        title: 'High Roller',
+        description: 'Secure a single sale worth > $2,500',
+        icon: '💰',
+        unlocked: highRollerUnlocked,
+        progressText: highRollerUnlocked ? `Unlocked ($${maxDealValue.toLocaleString()})` : '0/1 sale',
+        progressPercent: highRollerUnlocked ? 100 : 0,
+        timeframe: 'lifetime'
+      },
+      {
+        id: 'gk_charmer',
+        title: 'Gatekeeper Charmer',
+        description: 'Log 10 interactions successfully speaking with gatekeepers',
+        icon: '🔑',
+        unlocked: gatekeeperCharmerUnlocked,
+        progressText: `${totalGatekeepersSpoken}/10 gatekeepers`,
+        progressPercent: Math.min(100, Math.round((totalGatekeepersSpoken / 10) * 100)),
+        timeframe: 'lifetime'
+      },
+      {
+        id: 'tenacity_award',
+        title: 'Tenacity Award',
+        description: 'Log 3 or more interactions (visits/calls) on a single prospect',
+        icon: '🦾',
+        unlocked: tenacityAwardUnlocked,
+        progressText: `${maxInteractionsOnALead}/3 interactions`,
+        progressPercent: Math.min(100, Math.round((maxInteractionsOnALead / 3) * 100)),
+        timeframe: 'lifetime'
       }
     ];
+
+    // Check and append custom company achievements if profile is linked to an organization
+    if (profile.organizationId) {
+      try {
+        const org = await this.getOrganization(profile.organizationId);
+        if (org && org.customAchievements) {
+          org.customAchievements.forEach(ach => {
+            let unlocked = false;
+            let progressValue = 0;
+            const targetValue = ach.targetValue;
+            
+            // Check metric
+            if (ach.targetMetric === 'visits') {
+              progressValue = visits.length;
+              unlocked = progressValue >= targetValue;
+            } else if (ach.targetMetric === 'calls') {
+              progressValue = calls.length;
+              unlocked = progressValue >= targetValue;
+            } else if (ach.targetMetric === 'revenue') {
+              progressValue = totalSalesValue;
+              unlocked = progressValue >= targetValue;
+            } else if (ach.targetMetric === 'prospects') {
+              progressValue = totalLeadsCount;
+              unlocked = progressValue >= targetValue;
+            } else if (ach.targetMetric === 'appointments') {
+              const apptsCount = visits.filter(v => v.outcome === 'appointment_set').length + 
+                                  calls.filter(c => c.outcome === 'appointment_set').length;
+              progressValue = apptsCount;
+              unlocked = progressValue >= targetValue;
+            }
+
+            const progressPercent = Math.min(100, Math.round((progressValue / targetValue) * 100));
+            const isRevenue = ach.targetMetric === 'revenue';
+            const progressText = isRevenue
+              ? `$${progressValue.toLocaleString()}/$${targetValue.toLocaleString()}`
+              : `${progressValue}/${targetValue} ${ach.targetMetric}`;
+
+            badges.push({
+              id: ach.id,
+              title: ach.title,
+              description: ach.description,
+              icon: ach.icon || '🎯',
+              unlocked,
+              progressText,
+              progressPercent,
+              timeframe: ach.timeframe,
+              isCustom: true
+            });
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to resolve custom achievements', err);
+      }
+    }
 
     // Always return lifetime badges if timeframe is lifetime, otherwise return only badges matching the timeframe
     return timeframe === 'lifetime' 

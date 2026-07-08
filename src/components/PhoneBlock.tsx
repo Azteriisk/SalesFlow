@@ -8,10 +8,16 @@ import {
   PhoneCall, 
   RotateCcw,
   DollarSign,
-  Camera
+  Camera,
+  Mic,
+  MicOff,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { dbService, getWeekId } from '../services/db';
-import type { Lead, Call, Visit, LeadStatus } from '../services/db';
+import type { Lead, Call, Visit, LeadStatus, Profile } from '../services/db';
 import { triggerConfetti } from '../services/confetti';
 import { playSound } from '../services/sound';
 
@@ -67,6 +73,62 @@ const PhoneBlock: React.FC = () => {
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [goalAchievedModal, setGoalAchievedModal] = useState<string | null>(null);
+  
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [isScriptOpen, setIsScriptOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const p = await dbService.getProfile();
+        setProfile(p);
+      } catch (err) {
+        console.error('Failed to load profile in PhoneBlock', err);
+      }
+    };
+    loadProfile();
+  }, []);
+
+  const toggleListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice dictation is not supported in this browser. Please use Chrome, Safari, or a native WebView.");
+      return;
+    }
+
+    if (isListening) {
+      // Toggle off logic
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onresult = (event: any) => {
+      const speechToText = event.results[0][0].transcript;
+      setCallNotes(prev => prev ? `${prev} ${speechToText}` : speechToText);
+    };
+
+    recognition.start();
+  };
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -84,6 +146,23 @@ const PhoneBlock: React.FC = () => {
 
     setAttachedImages(prev => [...prev, ...compressedList]);
     e.target.value = '';
+  };
+
+  const handleNativeCameraCapture = async () => {
+    try {
+      const image = await CapCamera.getPhoto({
+        quality: 70,
+        allowEditing: false,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Prompt
+      });
+      if (image && image.base64String) {
+        const base64Image = `data:image/jpeg;base64,${image.base64String}`;
+        setAttachedImages(prev => [...prev, base64Image]);
+      }
+    } catch (err) {
+      console.warn('Native camera capture failed or cancelled:', err);
+    }
   };
 
   const handleRemoveImage = (index: number) => {
@@ -377,6 +456,60 @@ const PhoneBlock: React.FC = () => {
         </span>
       </div>
 
+      {profile?.callingScript && (
+        <div style={{
+          background: 'hsla(var(--primary-glow) / 0.1)',
+          border: '1px solid hsla(var(--primary) / 0.25)',
+          borderRadius: '12px',
+          padding: '0.65rem 0.85rem',
+          marginBottom: '1rem',
+          width: '100%',
+          maxWidth: '380px',
+          margin: '0 auto 1rem',
+          boxSizing: 'border-box'
+        }}>
+          <button 
+            type="button"
+            onClick={() => setIsScriptOpen(!isScriptOpen)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              color: 'hsl(var(--text-primary))',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              padding: 0
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              📜 Active Calling Script Reference
+            </span>
+            {isScriptOpen ? <ChevronUp style={{ width: '16px', height: '16px' }} /> : <ChevronDown style={{ width: '16px', height: '16px' }} />}
+          </button>
+          
+          {isScriptOpen && (
+            <div style={{ 
+              marginTop: '0.5rem', 
+              fontSize: '0.8rem', 
+              lineHeight: 1.4, 
+              color: 'hsl(var(--text-secondary))',
+              whiteSpace: 'pre-wrap',
+              maxHeight: '180px',
+              overflowY: 'auto',
+              borderTop: '1px solid hsla(var(--primary) / 0.15)',
+              paddingTop: '0.5rem',
+              textAlign: 'left'
+            }}>
+              {profile.callingScript}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="dialer-swiper-deck">
         {/* Next card in stack (static/background card) */}
         {queue.length > 1 && (
@@ -605,7 +738,39 @@ const PhoneBlock: React.FC = () => {
               )}
 
               <div className="form-group">
-                <label>Call Notes / Disposition</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                  <label style={{ margin: 0 }}>Call Notes / Disposition</label>
+                  <button
+                    type="button"
+                    onClick={toggleListening}
+                    style={{
+                      background: isListening ? 'hsl(var(--error) / 0.15)' : 'hsla(var(--primary) / 0.15)',
+                      border: isListening ? '1px solid hsl(var(--error))' : '1px solid hsla(var(--primary) / 0.4)',
+                      borderRadius: '16px',
+                      color: isListening ? 'hsl(var(--error))' : 'hsl(var(--primary))',
+                      fontSize: '0.74rem',
+                      fontWeight: 600,
+                      padding: '0.2rem 0.65rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    {isListening ? (
+                      <>
+                        <MicOff style={{ width: '12px', height: '12px', color: 'hsl(var(--error))' }} />
+                        Stop Listening
+                      </>
+                    ) : (
+                      <>
+                        <Mic style={{ width: '12px', height: '12px', color: 'hsl(var(--primary))' }} />
+                        Dictate Notes
+                      </>
+                    )}
+                  </button>
+                </div>
                 <textarea 
                   className="form-control"
                   rows={3}
@@ -623,29 +788,54 @@ const PhoneBlock: React.FC = () => {
                   <span style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))' }}>Optional</span>
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label className="btn-secondary" style={{ 
-                    display: 'inline-flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    gap: '0.4rem', 
-                    padding: '0.45rem 0.75rem', 
-                    fontSize: '0.8rem',
-                    cursor: 'pointer',
-                    width: 'fit-content',
-                    borderRadius: '6px',
-                    border: '1px solid hsl(var(--border-muted))',
-                    background: 'hsl(var(--bg-tertiary))'
-                  }}>
-                    <Camera style={{ width: '15px', height: '15px' }} />
-                    Add Photo
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      multiple 
-                      onChange={handleImageChange} 
-                      style={{ display: 'none' }} 
-                    />
-                  </label>
+                  {Capacitor.isNativePlatform() ? (
+                    <button 
+                      type="button"
+                      onClick={handleNativeCameraCapture}
+                      className="btn-secondary"
+                      style={{ 
+                        display: 'inline-flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        gap: '0.4rem', 
+                        padding: '0.45rem 0.75rem', 
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        width: 'fit-content',
+                        borderRadius: '6px',
+                        border: '1px solid hsl(var(--border-muted))',
+                        background: 'hsl(var(--bg-tertiary))',
+                        color: 'hsl(var(--text-primary))'
+                      }}
+                    >
+                      <Camera style={{ width: '15px', height: '15px' }} />
+                      Add Photo
+                    </button>
+                  ) : (
+                    <label className="btn-secondary" style={{ 
+                      display: 'inline-flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      gap: '0.4rem', 
+                      padding: '0.45rem 0.75rem', 
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      width: 'fit-content',
+                      borderRadius: '6px',
+                      border: '1px solid hsl(var(--border-muted))',
+                      background: 'hsl(var(--bg-tertiary))'
+                    }}>
+                      <Camera style={{ width: '15px', height: '15px' }} />
+                      Add Photo
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        multiple 
+                        onChange={handleImageChange} 
+                        style={{ display: 'none' }} 
+                      />
+                    </label>
+                  )}
                   
                   {attachedImages.length > 0 && (
                     <div style={{ 

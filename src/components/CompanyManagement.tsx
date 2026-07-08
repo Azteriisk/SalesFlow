@@ -6,9 +6,12 @@ import {
   BarChart3, 
   Settings2,
   Lock,
-  Check
+  Check,
+  Award,
+  Plus,
+  Trash2
 } from 'lucide-react';
-import { useOrganization, useUser, OrganizationSwitcher, CreateOrganization, OrganizationList } from '@clerk/clerk-react';
+import { useOrganization, useUser, OrganizationSwitcher, CreateOrganization, OrganizationList } from '../services/clerk';
 import { INDUSTRY_CATEGORIES } from '../services/places';
 import { dbService } from '../services/db';
 import type { Profile, Organization } from '../services/db';
@@ -27,9 +30,17 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
   });
   const { user } = useUser();
   
-  const [activeTab, setActiveTab] = useState<'roster' | 'analytics' | 'settings'>('roster');
+  const [activeTab, setActiveTab] = useState<'roster' | 'analytics' | 'settings' | 'achievements'>('roster');
   const [orgView, setOrgView] = useState<'prompt' | 'create' | 'list'>('prompt');
   const [localOrg, setLocalOrg] = useState<Organization | null>(null);
+
+  // Form states for creating custom achievements
+  const [achTitle, setAchTitle] = useState<string>('');
+  const [achDesc, setAchDesc] = useState<string>('');
+  const [achIcon, setAchIcon] = useState<string>('🎯');
+  const [achMetric, setAchMetric] = useState<'visits' | 'calls' | 'revenue' | 'appointments' | 'prospects'>('visits');
+  const [achValue, setAchValue] = useState<number>(10);
+  const [achTimeframe, setAchTimeframe] = useState<'weekly' | 'quarterly' | 'yearly' | 'lifetime'>('weekly');
   const [lockTargets, setLockTargets] = useState<boolean>(true);
   const [dailyOsv, setDailyOsv] = useState<number>(10);
   const [dailyCalls, setDailyCalls] = useState<number>(30);
@@ -127,6 +138,63 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
     } catch (err) {
       console.error(err);
       alert('Failed to save governance policy.');
+    }
+  };
+
+  const handleAddCustomAchievement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!localOrg || !achTitle.trim() || !achDesc.trim()) return;
+
+    const newAch = {
+      id: `custom_ach_${Date.now()}`,
+      title: achTitle.trim(),
+      description: achDesc.trim(),
+      icon: achIcon,
+      targetMetric: achMetric,
+      targetValue: achValue,
+      timeframe: achTimeframe,
+      createdAt: Date.now()
+    };
+
+    const updatedAchievements = [...(localOrg.customAchievements || []), newAch];
+    const updated: Organization = {
+      ...localOrg,
+      customAchievements: updatedAchievements
+    };
+
+    try {
+      await dbService.saveOrganization(updated);
+      setLocalOrg(updated);
+      setAchTitle('');
+      setAchDesc('');
+      setAchIcon('🎯');
+      setAchMetric('visits');
+      setAchValue(10);
+      setAchTimeframe('weekly');
+      alert('Custom company achievement added successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to add custom achievement.');
+    }
+  };
+
+  const handleDeleteCustomAchievement = async (id: string) => {
+    if (!localOrg) return;
+    if (!confirm('Are you sure you want to delete this custom achievement?')) return;
+
+    const updatedAchievements = (localOrg.customAchievements || []).filter(ach => ach.id !== id);
+    const updated: Organization = {
+      ...localOrg,
+      customAchievements: updatedAchievements
+    };
+
+    try {
+      await dbService.saveOrganization(updated);
+      setLocalOrg(updated);
+      alert('Custom achievement deleted.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete custom achievement.');
     }
   };
 
@@ -248,6 +316,13 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
             <Settings2 style={{ width: '16px', height: '16px' }} /> Governance
           </button>
         )}
+        <button 
+          onClick={() => setActiveTab('achievements')}
+          className={`tab-button-small ${activeTab === 'achievements' ? 'active' : ''}`}
+          style={{ padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: activeTab === 'achievements' ? 'hsl(var(--primary))' : 'hsl(var(--bg-secondary))', color: activeTab === 'achievements' ? 'white' : 'hsl(var(--text-secondary))', border: 'none', cursor: 'pointer' }}
+        >
+          <Award style={{ width: '16px', height: '16px' }} /> Achievements
+        </button>
       </div>
 
       {/* Tab Panels */}
@@ -350,7 +425,7 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
             <div className="form-group" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
               <label style={{ marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.9rem' }}>Company Default Target Industries</label>
               <div className="category-checklist" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-                {INDUSTRY_CATEGORIES.map(category => {
+                {(profile.categories || INDUSTRY_CATEGORIES).map(category => {
                   const isChecked = companyIndustries.includes(category.id);
                   return (
                     <div 
@@ -391,6 +466,181 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
             >
               Save Governance Policies
             </button>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'achievements' && localOrg && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {/* Create custom achievements section for admins */}
+          {isAdmin && (
+            <div className="glass-panel" style={{ padding: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <Plus style={{ width: '18px', height: '18px', color: 'hsl(var(--primary))' }} />
+                <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', margin: 0 }}>Create Company Achievement</h3>
+              </div>
+              <p style={{ fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', marginBottom: '1rem' }}>
+                Design a custom milestone badge for your sales reps to unlock on their dashboards.
+              </p>
+
+              <form onSubmit={handleAddCustomAchievement} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '0.75rem' }}>
+                  <div className="form-group">
+                    <label>Badge Icon</label>
+                    <input 
+                      type="text" 
+                      maxLength={2}
+                      value={achIcon}
+                      onChange={(e) => setAchIcon(e.target.value)}
+                      className="form-input" 
+                      style={{ fontSize: '1.25rem', textAlign: 'center' }}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Badge Title</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Summer Heatwave"
+                      value={achTitle}
+                      onChange={(e) => setAchTitle(e.target.value)}
+                      className="form-input" 
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Description / Criteria</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Complete 50 On-Site Visits this quarter"
+                    value={achDesc}
+                    onChange={(e) => setAchDesc(e.target.value)}
+                    className="form-input" 
+                    required
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  <div className="form-group">
+                    <label>Target Metric</label>
+                    <select
+                      className="form-input"
+                      value={achMetric}
+                      onChange={(e) => setAchMetric(e.target.value as any)}
+                      style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', padding: '0.4rem', borderRadius: '6px', color: 'hsl(var(--text-primary))' }}
+                    >
+                      <option value="visits">Visits</option>
+                      <option value="calls">Calls</option>
+                      <option value="revenue">Revenue ($)</option>
+                      <option value="appointments">Appointments</option>
+                      <option value="prospects">Prospects Added</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Target Goal Value</label>
+                    <input 
+                      type="number" 
+                      min={1}
+                      value={achValue}
+                      onChange={(e) => setAchValue(parseInt(e.target.value, 10) || 0)}
+                      className="form-input" 
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Timeframe</label>
+                    <select
+                      className="form-input"
+                      value={achTimeframe}
+                      onChange={(e) => setAchTimeframe(e.target.value as any)}
+                      style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', padding: '0.4rem', borderRadius: '6px', color: 'hsl(var(--text-primary))' }}
+                    >
+                      <option value="weekly">Weekly</option>
+                      <option value="quarterly">Quarterly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="lifetime">Lifetime</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: '0.5rem', cursor: 'pointer' }}>
+                  + Create Company Achievement
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* List custom achievements */}
+          <div className="glass-panel" style={{ padding: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid hsl(var(--border-muted))', paddingBottom: '0.5rem' }}>
+              <Award style={{ width: '18px', height: '18px', color: 'hsl(var(--primary))' }} />
+              <h3 style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1.1rem', margin: 0 }}>Active Custom Achievements</h3>
+              <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', marginLeft: 'auto' }}>
+                {localOrg.customAchievements?.length || 0} Defined
+              </span>
+            </div>
+
+            {(!localOrg.customAchievements || localOrg.customAchievements.length === 0) ? (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'hsl(var(--text-muted))', fontSize: '0.88rem' }}>
+                No custom achievements defined for {localOrg.name} yet.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {localOrg.customAchievements.map((ach) => (
+                  <div 
+                    key={ach.id} 
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1rem',
+                      padding: '0.75rem 1rem',
+                      background: 'hsla(var(--primary-glow) / 0.05)',
+                      border: '1px solid hsla(var(--primary) / 0.15)',
+                      borderRadius: '10px',
+                      position: 'relative'
+                    }}
+                  >
+                    <div style={{ fontSize: '1.75rem' }}>{ach.icon}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', flex: 1 }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'hsl(var(--text-primary))' }}>{ach.title}</span>
+                      <span style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary))' }}>{ach.description}</span>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.66rem', background: 'hsl(var(--bg-secondary))', border: '1px solid hsl(var(--border-muted))', color: 'hsl(var(--text-muted))', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: 600 }}>
+                          🎯 {ach.targetValue} {ach.targetMetric}
+                        </span>
+                        <span style={{ fontSize: '0.66rem', background: 'hsl(var(--bg-secondary))', border: '1px solid hsl(var(--border-muted))', color: 'hsl(var(--text-muted))', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', fontWeight: 600 }}>
+                          ⏰ {ach.timeframe}
+                        </span>
+                      </div>
+                    </div>
+                    {isAdmin && (
+                      <button 
+                        type="button"
+                        onClick={() => handleDeleteCustomAchievement(ach.id)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'hsl(var(--error))',
+                          cursor: 'pointer',
+                          opacity: 0.7,
+                          padding: '0.25rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px'
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'hsla(var(--error) / 0.1)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <Trash2 style={{ width: '16px', height: '16px' }} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

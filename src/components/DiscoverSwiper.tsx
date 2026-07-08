@@ -213,7 +213,8 @@ const DiscoverSwiper: React.FC<DiscoverSwiperProps> = ({ location, profile }) =>
           location.latitude,
           location.longitude,
           profile.searchRadiusKm,
-          profile.industryFilters
+          profile.industryFilters,
+          profile.categories
         );
 
         // Filter out places already swiped or imported

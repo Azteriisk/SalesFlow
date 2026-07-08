@@ -9,12 +9,15 @@ import {
   WifiOff,
   Building
 } from 'lucide-react';
-import { SignedIn, SignedOut, SignIn, UserButton, useUser } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, SignIn, UserButton, useUser } from './services/clerk';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 import { dbService } from './services/db';
 import type { Profile } from './services/db';
 import { 
   checkAndTriggerAppointmentReminders, 
-  checkDailyOsvMotivationAlert 
+  checkDailyOsvMotivationAlert,
+  checkProximityArrivalAlerts
 } from './services/notifications';
 import { 
   registerBackgroundSync, 
@@ -75,6 +78,17 @@ const App: React.FC = () => {
     const initDb = async () => {
       try {
         await dbService.init();
+
+        // Request storage persistence if supported to prevent OS deletion in low disk conditions
+        if (navigator.storage && navigator.storage.persist) {
+          try {
+            const persisted = await navigator.storage.persist();
+            console.log(`[Storage] Persistence granted: ${persisted}`);
+          } catch (e) {
+            console.warn('[Storage] Failed to request storage persistence', e);
+          }
+        }
+
         let userProfile = await dbService.getProfile();
         
         if (user && user.id) {
@@ -99,7 +113,7 @@ const App: React.FC = () => {
       }
     };
     initDb();
-  }, [user]);
+  }, [user?.id, user?.fullName]);
 
   // Register background sync & periodic sync when DB is ready
   useEffect(() => {
@@ -128,41 +142,67 @@ const App: React.FC = () => {
   // Get initial location on startup
   useEffect(() => {
     if (isSimulatedLoc) return;
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setLocation({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude
-          });
-        },
-        (err) => {
-          console.warn('Initial geolocation failed:', err);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-      );
-    }
+
+    const getInitialLocation = async () => {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setLocation({ latitude: lat, longitude: lng });
+          checkProximityArrivalAlerts(lat, lng);
+        } catch (err) {
+          console.warn('Native initial geolocation failed:', err);
+        }
+      } else if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            setLocation({ latitude: lat, longitude: lng });
+            checkProximityArrivalAlerts(lat, lng);
+          },
+          (err) => {
+            console.warn('Browser initial geolocation failed:', err);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        );
+      }
+    };
+
+    getInitialLocation();
   }, [isSimulatedLoc]);
 
-  const refreshLocation = () => {
+  const refreshLocation = async () => {
     if (isSimulatedLoc) return;
-    if (navigator.geolocation) {
+
+    const handleNewLocation = (lat: number, lng: number) => {
+      setLocation({ latitude: lat, longitude: lng });
+      checkProximityArrivalAlerts(lat, lng);
+      
+      if (dbInitialized && profile) {
+        dbService.saveProfile({
+          ...profile,
+          lastLatitude: lat,
+          lastLongitude: lng
+        } as any);
+      }
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 5000 });
+        handleNewLocation(pos.coords.latitude, pos.coords.longitude);
+      } catch (err) {
+        console.warn('Failed to refresh native location:', err);
+      }
+    } else if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const newLat = pos.coords.latitude;
-          const newLng = pos.coords.longitude;
-          setLocation({ latitude: newLat, longitude: newLng });
-          
-          if (dbInitialized && profile) {
-            dbService.saveProfile({
-              ...profile,
-              lastLatitude: newLat,
-              lastLongitude: newLng
-            } as any);
-          }
+          handleNewLocation(pos.coords.latitude, pos.coords.longitude);
         },
         (err) => {
-          console.warn('Failed to refresh location:', err);
+          console.warn('Failed to refresh browser location:', err);
         },
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );

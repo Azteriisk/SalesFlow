@@ -10,7 +10,12 @@ import {
   FileSpreadsheet,
   BarChart3,
   TrendingUp,
-  Briefcase
+  Briefcase,
+  Plus,
+  Edit3,
+  RotateCcw,
+  RefreshCw,
+  Phone
 } from 'lucide-react';
 import { 
   dbService, 
@@ -19,8 +24,11 @@ import {
 } from '../services/db';
 import type { Profile, WeeklyPlan, Lead } from '../services/db';
 import { INDUSTRY_CATEGORIES } from '../services/places';
+import type { TargetCategory } from '../services/places';
+import { generateAISuggestions } from '../services/aiSuggestions';
 import { requestNotificationPermission } from '../services/notifications';
 import { syncDataWithCloud, getLastSyncedTime } from '../services/sync';
+import { useUser } from '../services/clerk';
 
 interface SettingsProps {
   profile: Profile;
@@ -54,6 +62,7 @@ const Settings: React.FC<SettingsProps> = ({
   onResetLocation,
   isLocationSimulated
 }) => {
+  const { user } = useUser();
   const [repName, setRepName] = useState<string>(profile.repName);
   const [searchRadius, setSearchRadius] = useState<number>(profile.searchRadiusKm);
   const [activeIndustries, setActiveIndustries] = useState<string[]>(profile.industryFilters);
@@ -62,6 +71,18 @@ const Settings: React.FC<SettingsProps> = ({
   const [appointmentRemindersEnabled, setAppointmentRemindersEnabled] = useState<boolean>(profile.appointmentRemindersEnabled ?? true);
   const [motivationRemindersEnabled, setMotivationRemindersEnabled] = useState<boolean>(profile.motivationRemindersEnabled ?? true);
   const [jobType, setJobType] = useState<string>(profile.jobType || 'General Commercial Representative');
+  const [companyName, setCompanyName] = useState<string>(profile.companyName || '');
+  const [callingScript, setCallingScript] = useState<string>(profile.callingScript || '');
+  const [aiSuggestions, setAiSuggestions] = useState<TargetCategory[]>([]);
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState<boolean>(false);
+  
+  const [categories, setCategories] = useState<TargetCategory[]>(profile.categories || INDUSTRY_CATEGORIES);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState<string>('');
+  const [editQuery, setEditQuery] = useState<string>('');
+  const [newLabel, setNewLabel] = useState<string>('');
+  const [newQuery, setNewQuery] = useState<string>('');
+  const [isAddingCategory, setIsAddingCategory] = useState<boolean>(false);
   
   // Sync status
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
@@ -175,19 +196,149 @@ const Settings: React.FC<SettingsProps> = ({
     setSimLng(location.longitude.toFixed(6));
   }, [location]);
 
-  const JOB_TYPE_RECOMMENDATIONS: Record<string, string[]> = {
-    'Uniform Sales Representative': ['auto_repair', 'warehouse', 'restaurant', 'manufacturing', 'contractor'],
-    'Waste & Sanitation Representative': ['waste_management', 'manufacturing', 'auto_repair'],
-    'Food & Beverage Representative': ['restaurant'],
-    'Logistics & Warehouse Representative': ['warehouse', 'manufacturing'],
-    'General Commercial Representative': ['auto_repair', 'warehouse', 'restaurant', 'manufacturing', 'waste_management', 'contractor', 'construction']
+  const handleTriggerAISuggestions = () => {
+    if (!jobType.trim()) {
+      alert('Please enter a Job Title to generate suggestions.');
+      return;
+    }
+    setIsGeneratingSuggestions(true);
+    setAiSuggestions([]);
+    
+    // Simulate premium AI computation delay of 1.5s
+    setTimeout(() => {
+      const suggestions = generateAISuggestions(jobType, companyName);
+      setAiSuggestions(suggestions);
+      setIsGeneratingSuggestions(false);
+    }, 1500);
   };
 
-  const handleJobTypeChange = (val: string) => {
-    setJobType(val);
-    const recommended = JOB_TYPE_RECOMMENDATIONS[val];
-    if (recommended) {
-      setActiveIndustries(recommended);
+  const handleAddSuggestedTarget = (suggestion: TargetCategory) => {
+    const newId = `custom_ai_${Date.now()}`;
+    const newCat: TargetCategory = {
+      id: newId,
+      label: suggestion.label,
+      query: suggestion.query,
+      isCustom: true
+    };
+    
+    if (categories.some(c => c.label.toLowerCase() === suggestion.label.toLowerCase())) {
+      alert(`A target category named "${suggestion.label}" is already in your list.`);
+      return;
+    }
+
+    const updatedCats = [...categories, newCat];
+    setCategories(updatedCats);
+    
+    const updatedFilters = [...activeIndustries, newId];
+    setActiveIndustries(updatedFilters);
+    
+    const updated: Profile = {
+      ...profile,
+      categories: updatedCats,
+      industryFilters: updatedFilters
+    };
+    onProfileUpdate(updated);
+
+    // Remove from suggestions
+    setAiSuggestions(aiSuggestions.filter(s => s.id !== suggestion.id));
+  };
+
+  const handleAddCategory = () => {
+    if (!newLabel.trim() || !newQuery.trim()) {
+      alert('Please fill out both the category label and search keywords.');
+      return;
+    }
+    const newId = `custom_${Date.now()}`;
+    const newCat: TargetCategory = {
+      id: newId,
+      label: newLabel.trim(),
+      query: newQuery.trim(),
+      isCustom: true
+    };
+    const updatedCats = [...categories, newCat];
+    setCategories(updatedCats);
+    
+    // Automatically enable it in active industries
+    const updatedFilters = [...activeIndustries, newId];
+    setActiveIndustries(updatedFilters);
+    
+    // Reset form
+    setNewLabel('');
+    setNewQuery('');
+    setIsAddingCategory(false);
+    
+    // Save to DB immediately so changes persist
+    const updated: Profile = {
+      ...profile,
+      categories: updatedCats,
+      industryFilters: updatedFilters
+    };
+    onProfileUpdate(updated);
+  };
+
+  const handleStartEdit = (cat: TargetCategory) => {
+    setEditingCategoryId(cat.id);
+    setEditLabel(cat.label);
+    setEditQuery(cat.query);
+  };
+
+  const handleSaveEdit = (id: string) => {
+    if (!editLabel.trim() || !editQuery.trim()) {
+      alert('Please fill out both the label and search keywords.');
+      return;
+    }
+    const updatedCats = categories.map(cat => {
+      if (cat.id === id) {
+        return { ...cat, label: editLabel.trim(), query: editQuery.trim() };
+      }
+      return cat;
+    });
+    setCategories(updatedCats);
+    setEditingCategoryId(null);
+    
+    // Save to DB immediately
+    const updated: Profile = {
+      ...profile,
+      categories: updatedCats
+    };
+    onProfileUpdate(updated);
+  };
+
+  const handleDeleteCategory = (id: string) => {
+    if (confirm('Are you sure you want to delete this custom category?')) {
+      const updatedCats = categories.filter(cat => cat.id !== id);
+      setCategories(updatedCats);
+      const updatedFilters = activeIndustries.filter(item => item !== id);
+      setActiveIndustries(updatedFilters);
+      
+      // Save to DB immediately
+      const updated: Profile = {
+        ...profile,
+        categories: updatedCats,
+        industryFilters: updatedFilters
+      };
+      onProfileUpdate(updated);
+    }
+  };
+
+  const handleResetDefaultCategory = (id: string) => {
+    const original = INDUSTRY_CATEGORIES.find(c => c.id === id);
+    if (original) {
+      const updatedCats = categories.map(cat => {
+        if (cat.id === id) {
+          return { ...cat, label: original.label, query: original.query };
+        }
+        return cat;
+      });
+      setCategories(updatedCats);
+      
+      // Save to DB immediately
+      const updated: Profile = {
+        ...profile,
+        categories: updatedCats
+      };
+      onProfileUpdate(updated);
+      alert(`Reset "${original.label}" category to its original settings.`);
     }
   };
 
@@ -259,10 +410,35 @@ const Settings: React.FC<SettingsProps> = ({
       notificationsEnabled,
       appointmentRemindersEnabled,
       motivationRemindersEnabled,
-      jobType
+      jobType,
+      companyName,
+      categories,
+      callingScript
     };
     onProfileUpdate(updated);
     alert('Profile settings saved successfully.');
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirmDelete = window.confirm(
+      "WARNING: This will permanently delete your account, your organization associations, and wipe all local offline data from this device. This cannot be undone.\n\nAre you sure you want to proceed?"
+    );
+    if (!confirmDelete) return;
+
+    try {
+      await dbService.clearAllData();
+      
+      if (user) {
+        await user.delete();
+        alert("Your account has been deleted successfully.");
+      } else {
+        alert("Local data wiped. Mock account cleared.");
+        window.location.reload();
+      }
+    } catch (err: any) {
+      console.error("Account deletion failed:", err);
+      alert(`Failed to delete account: ${err.message || 'Unknown error'}`);
+    }
   };
 
   const handleToggleNotifications = async (checked: boolean) => {
@@ -759,26 +935,136 @@ const Settings: React.FC<SettingsProps> = ({
           />
         </div>
 
-        <div className="form-group">
-          <label style={{ marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <Briefcase style={{ width: '15px', height: '15px', color: 'hsl(var(--primary))' }} />
-            Job Type Profile
-          </label>
-          <select 
-            value={jobType} 
-            onChange={(e) => handleJobTypeChange(e.target.value)}
-            className="form-control"
-            style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '8px', color: 'hsl(var(--text-primary))', padding: '0.5rem', width: '100%', cursor: 'pointer', outline: 'none' }}
-          >
-            <option value="General Commercial Representative">General Commercial Representative</option>
-            <option value="Uniform Sales Representative">Uniform Sales Representative</option>
-            <option value="Waste & Sanitation Representative">Waste & Sanitation Representative</option>
-            <option value="Food & Beverage Representative">Food & Beverage Representative</option>
-            <option value="Logistics & Warehouse Representative">Logistics & Warehouse Representative</option>
-          </select>
-          <span style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', marginTop: '0.25rem', display: 'block' }}>
-            Changing your job type will automatically check the recommended industries below (you can still customize them).
-          </span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '0.4rem' }}>
+          <div className="form-group">
+            <label style={{ marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <Briefcase style={{ width: '15px', height: '15px', color: 'hsl(var(--primary))' }} />
+              Job Title
+            </label>
+            <input 
+              type="text" 
+              value={jobType} 
+              onChange={(e) => setJobType(e.target.value)}
+              placeholder="e.g. Uniform Sales Rep, Medical Devices"
+              className="form-control"
+              style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '8px', color: 'hsl(var(--text-primary))', padding: '0.5rem', width: '100%', outline: 'none' }}
+            />
+          </div>
+
+          <div className="form-group">
+            <label style={{ marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <Compass style={{ width: '15px', height: '15px', color: 'hsl(var(--primary))' }} />
+              Company Name
+            </label>
+            <input 
+              type="text" 
+              value={companyName} 
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="e.g. Cintas, UniFirst"
+              className="form-control"
+              style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '8px', color: 'hsl(var(--text-primary))', padding: '0.5rem', width: '100%', outline: 'none' }}
+            />
+          </div>
+        </div>
+
+        {/* AI Recommendations Panel */}
+        <div style={{ 
+          background: 'linear-gradient(135deg, hsla(var(--primary-glow) / 0.1) 0%, hsla(var(--secondary) / 0.05) 100%)',
+          border: '1px solid hsla(var(--primary) / 0.25)', 
+          borderRadius: '12px', 
+          padding: '0.85rem', 
+          marginBottom: '1rem',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'hsl(var(--text-primary))', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                ✨ AI Target Recommendations
+              </div>
+              <div style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))', marginTop: '0.1rem' }}>
+                Generate custom target suggestions matching your specific role and company profile.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleTriggerAISuggestions}
+              disabled={isGeneratingSuggestions}
+              style={{
+                background: 'linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: '0.78rem',
+                padding: '0.45rem 0.9rem',
+                cursor: 'pointer',
+                opacity: isGeneratingSuggestions ? 0.7 : 1,
+                boxShadow: '0 4px 12px hsla(var(--primary) / 0.2)',
+                transition: 'transform 0.2s'
+              }}
+            >
+              {isGeneratingSuggestions ? 'AI is Thinking...' : 'Generate Suggestions'}
+            </button>
+          </div>
+
+          {isGeneratingSuggestions && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', color: 'hsl(var(--secondary))', fontSize: '0.78rem' }}>
+              <RefreshCw className="animate-spin" style={{ width: '14px', height: '14px', animation: 'spin 1.5s linear infinite' }} />
+              <span>AI is analyzing your role and company target profile...</span>
+            </div>
+          )}
+
+          {aiSuggestions.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem', borderTop: '1px solid hsla(var(--primary) / 0.15)', paddingTop: '0.6rem' }}>
+              <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 700, color: 'hsl(var(--text-secondary))', letterSpacing: '0.05em' }}>
+                AI Suggested Targets
+              </span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.4rem' }}>
+                {aiSuggestions.map((suggestion) => (
+                  <div 
+                    key={suggestion.id}
+                    style={{
+                      background: 'rgba(0,0,0,0.2)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: '8px',
+                      padding: '0.45rem 0.6rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.4rem'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {suggestion.label}
+                      </span>
+                      <span style={{ fontSize: '0.65rem', color: 'hsl(var(--text-muted))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        Keywords: {suggestion.query}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAddSuggestedTarget(suggestion)}
+                      style={{
+                        background: 'hsla(var(--primary) / 0.25)',
+                        border: '1px solid hsla(var(--primary) / 0.4)',
+                        borderRadius: '6px',
+                        color: 'hsl(var(--primary))',
+                        fontWeight: 700,
+                        fontSize: '0.7rem',
+                        padding: '0.2rem 0.45rem',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      + Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="form-group">
@@ -795,7 +1081,7 @@ const Settings: React.FC<SettingsProps> = ({
             )}
           </div>
           <div className="category-checklist">
-            {INDUSTRY_CATEGORIES.map(category => (
+            {categories.map(category => (
               <div 
                 key={category.id} 
                 className={`category-card ${activeIndustries.includes(category.id) ? 'active' : ''}`}
@@ -816,6 +1102,211 @@ const Settings: React.FC<SettingsProps> = ({
                 <span>{category.label}</span>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="form-group" style={{ borderTop: '1px solid hsl(var(--border-muted))', paddingTop: '1rem', marginTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+            <div>
+              <label style={{ margin: 0, display: 'block', fontWeight: 600 }}>Target Query & Keyword Editor</label>
+              <span style={{ fontSize: '0.74rem', color: 'hsl(var(--text-muted))' }}>
+                Customize the names and Google Maps search keywords for your target sectors.
+              </span>
+            </div>
+            {!isAddingCategory && (
+              <button 
+                type="button"
+                onClick={() => setIsAddingCategory(true)}
+                style={{ 
+                  background: 'hsl(var(--primary))', 
+                  border: 'none', 
+                  borderRadius: '6px', 
+                  color: '#fff', 
+                  fontSize: '0.75rem', 
+                  fontWeight: 600, 
+                  padding: '0.4rem 0.75rem', 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.25rem' 
+                }}
+              >
+                <Plus style={{ width: '13px', height: '13px' }} /> Add Custom Target
+              </button>
+            )}
+          </div>
+
+          {/* Add Category Form */}
+          {isAddingCategory && (
+            <div style={{ 
+              background: 'hsla(var(--bg-tertiary) / 0.3)', 
+              border: '1px dashed hsl(var(--border-muted))', 
+              borderRadius: '8px', 
+              padding: '0.85rem', 
+              marginBottom: '1rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.75rem'
+            }}>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem', color: 'hsl(var(--primary))' }}>New Custom Target Category</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <label style={{ fontSize: '0.7rem', color: 'hsl(var(--text-secondary))' }}>Category Name / Label</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Pet Stores" 
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value)}
+                    style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.4rem', color: '#fff', fontSize: '0.78rem', outline: 'none' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <label style={{ fontSize: '0.7rem', color: 'hsl(var(--text-secondary))' }}>Google Maps Search Keywords</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. pet store aquarium pet supplies" 
+                    value={newQuery}
+                    onChange={(e) => setNewQuery(e.target.value)}
+                    style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.4rem', color: '#fff', fontSize: '0.78rem', outline: 'none' }}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.25rem' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setIsAddingCategory(false)}
+                  style={{ background: 'transparent', border: '1px solid hsl(var(--border-muted))', color: 'hsl(var(--text-secondary))', borderRadius: '4px', padding: '0.3rem 0.6rem', fontSize: '0.75rem', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleAddCategory}
+                  style={{ background: 'hsl(var(--primary))', border: 'none', color: '#fff', borderRadius: '4px', padding: '0.3rem 0.6rem', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Add Category
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Categories List */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+            {categories.map(cat => {
+              const originalCat = INDUSTRY_CATEGORIES.find(c => c.id === cat.id);
+              const hasChanged = originalCat && (originalCat.label !== cat.label || originalCat.query !== cat.query);
+              const isEditing = editingCategoryId === cat.id;
+
+              return (
+                <div 
+                  key={cat.id} 
+                  style={{ 
+                    background: 'hsla(var(--bg-tertiary) / 0.2)', 
+                    border: '1px solid hsl(var(--border-muted))', 
+                    borderRadius: '8px', 
+                    padding: '0.6rem 0.8rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.4rem'
+                  }}
+                >
+                  {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <label style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))' }}>Label</label>
+                          <input 
+                            type="text" 
+                            value={editLabel} 
+                            onChange={(e) => setEditLabel(e.target.value)}
+                            style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.3rem', color: '#fff', fontSize: '0.75rem', outline: 'none' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <label style={{ fontSize: '0.7rem', color: 'hsl(var(--text-muted))' }}>Keywords</label>
+                          <input 
+                            type="text" 
+                            value={editQuery} 
+                            onChange={(e) => setEditQuery(e.target.value)}
+                            style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.3rem', color: '#fff', fontSize: '0.75rem', outline: 'none' }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', marginTop: '0.25rem' }}>
+                        <button 
+                          type="button" 
+                          onClick={() => setEditingCategoryId(null)}
+                          style={{ background: 'transparent', border: '1px solid hsl(var(--border-muted))', color: 'hsl(var(--text-secondary))', borderRadius: '4px', padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: 'pointer' }}
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => handleSaveEdit(cat.id)}
+                          style={{ background: 'hsl(var(--primary))', border: 'none', color: '#fff', borderRadius: '4px', padding: '0.2rem 0.5rem', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--text-primary))' }}>
+                            {cat.label}
+                          </span>
+                          {cat.isCustom ? (
+                            <span style={{ fontSize: '0.62rem', background: 'hsl(var(--secondary) / 0.15)', color: 'hsl(var(--secondary))', border: '1px solid hsl(var(--secondary) / 0.3)', borderRadius: '4px', padding: '0.05rem 0.25rem' }}>
+                              Custom
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.62rem', background: 'rgba(255, 255, 255, 0.05)', color: 'hsl(var(--text-muted))', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '4px', padding: '0.05rem 0.25rem' }}>
+                              System
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', fontFamily: 'monospace', background: 'rgba(0, 0, 0, 0.15)', padding: '0.15rem 0.3rem', borderRadius: '4px', marginTop: '0.15rem', display: 'inline-block' }}>
+                          {cat.query}
+                        </span>
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <button 
+                          type="button" 
+                          onClick={() => handleStartEdit(cat)}
+                          title="Edit Keywords"
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid hsl(var(--border-muted))', color: 'hsl(var(--text-secondary))', borderRadius: '6px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                        >
+                          <Edit3 style={{ width: '13px', height: '13px', margin: 'auto' }} />
+                        </button>
+                        {cat.isCustom ? (
+                          <button 
+                            type="button" 
+                            onClick={() => handleDeleteCategory(cat.id)}
+                            title="Delete Target"
+                            style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: 'hsl(0 84.2% 60.2%)', borderRadius: '6px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                          >
+                            <Trash2 style={{ width: '13px', height: '13px', margin: 'auto' }} />
+                          </button>
+                        ) : (
+                          hasChanged && (
+                            <button 
+                              type="button" 
+                              onClick={() => handleResetDefaultCategory(cat.id)}
+                              title="Reset to default query"
+                              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid hsl(var(--border-muted))', color: 'hsl(var(--secondary))', borderRadius: '6px', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                            >
+                              <RotateCcw style={{ width: '13px', height: '13px', margin: 'auto' }} />
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -910,6 +1401,36 @@ const Settings: React.FC<SettingsProps> = ({
           )}
         </div>
 
+        {/* Calling Script Reference Textarea */}
+        <div className="form-group" style={{ borderTop: '1px solid hsl(var(--border-muted))', paddingTop: '0.85rem' }}>
+          <label style={{ marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600, fontSize: '0.85rem' }}>
+            <Phone style={{ width: '15px', height: '15px', color: 'hsl(var(--primary))' }} />
+            Cold Calling Script pad
+          </label>
+          <textarea 
+            value={callingScript}
+            onChange={(e) => setCallingScript(e.target.value)}
+            placeholder="Write your phone script or pitch hook here... It will automatically show up as a collapsible reference helper card in the Phone Dialer block."
+            className="form-control"
+            rows={5}
+            style={{ 
+              background: 'hsl(var(--bg-primary))', 
+              border: '1px solid hsl(var(--border-muted))', 
+              borderRadius: '8px', 
+              color: 'hsl(var(--text-primary))', 
+              padding: '0.5rem 0.75rem', 
+              width: '100%', 
+              outline: 'none', 
+              fontFamily: 'inherit', 
+              fontSize: '0.82rem',
+              resize: 'vertical'
+            }}
+          />
+          <span style={{ fontSize: '0.72rem', color: 'hsl(var(--text-muted))', marginTop: '0.2rem', display: 'block' }}>
+            Keep your pitch hooks, qualifiers, or objection handling scripts here for quick offline reference when cold calling.
+          </span>
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid hsl(var(--border-muted))', paddingTop: '0.85rem', marginTop: '0.4rem' }}>
           <input 
             type="checkbox" 
@@ -923,10 +1444,35 @@ const Settings: React.FC<SettingsProps> = ({
           </label>
         </div>
 
-        <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-start' }}>
-          <Save style={{ width: '16px', height: '16px' }} />
-          Save Profile
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
+          <button type="submit" className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Save style={{ width: '16px', height: '16px' }} />
+            Save Profile
+          </button>
+
+          <button 
+            type="button" 
+            onClick={handleDeleteAccount} 
+            className="btn-danger" 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.4rem', 
+              background: 'transparent',
+              border: '1px solid hsl(var(--error))',
+              color: 'hsl(var(--error))',
+              padding: '0.5rem 0.9rem',
+              borderRadius: '8px',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              marginLeft: 'auto'
+            }}
+          >
+            <Trash2 style={{ width: '15px', height: '15px' }} />
+            Delete Account & Wipe Data
+          </button>
+        </div>
       </form>
 
       {/* 2. Weekly Targets Planner */}

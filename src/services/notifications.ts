@@ -1,4 +1,6 @@
 import { dbService, getWeekId } from './db';
+import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 // Keep track of notified items in memory / localStorage to avoid duplicate notifications
 const NOTIFIED_KEY = 'salesflow_notified_appointments';
@@ -26,6 +28,16 @@ function addToNotifiedList(id: string) {
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const status = await LocalNotifications.requestPermissions();
+      return status.display === 'granted';
+    } catch (err) {
+      console.error('Error requesting native notification permission', err);
+      return false;
+    }
+  }
+
   if (!('Notification' in window)) {
     console.warn('This browser does not support desktop notifications');
     return false;
@@ -44,6 +56,24 @@ export async function triggerLocalNotification(title: string, options?: Notifica
   try {
     const profile = await dbService.getProfile();
     if (!profile.notificationsEnabled) return;
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id: Math.floor(Math.random() * 100000),
+              title,
+              body: options?.body || '',
+              extra: options?.data || {}
+            }
+          ]
+        });
+      } catch (err) {
+        console.error('Failed to schedule native notification', err);
+      }
+      return;
+    }
 
     if (Notification.permission === 'granted') {
       new Notification(title, {
@@ -177,5 +207,50 @@ export async function checkDailyOsvMotivationAlert() {
     }
   } catch (err) {
     console.error('Failed to trigger daily motivation alert', err);
+  }
+}
+
+// Alert when approaching lead with appointment (within 100 meters)
+export async function checkProximityArrivalAlerts(userLat: number, userLng: number) {
+  try {
+    const profile = await dbService.getProfile();
+    if (!profile.notificationsEnabled) return;
+
+    const allLeads = await dbService.getAllLeads();
+    const apptLeads = allLeads.filter(l => l.status === 'appointment_set');
+
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371; // km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    };
+
+    for (const lead of apptLeads) {
+      if (!lead.latitude || !lead.longitude) continue;
+      
+      const distanceKm = getDistance(userLat, userLng, lead.latitude, lead.longitude);
+      
+      // Proximity threshold of 100 meters (0.1 km)
+      if (distanceKm < 0.1) {
+        const arrivalNotifiedKey = `salesflow_notified_arrival_${lead.id}`;
+        const alreadyNotified = localStorage.getItem(arrivalNotifiedKey);
+        
+        if (!alreadyNotified) {
+          triggerLocalNotification(`Arrived at Appointment`, {
+            body: `You've arrived at ${lead.name} for your scheduled meeting! Open notes to review.`,
+            requireInteraction: true
+          });
+          localStorage.setItem(arrivalNotifiedKey, 'true');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to run proximity arrival alerts scanner', err);
   }
 }
