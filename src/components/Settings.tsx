@@ -28,7 +28,7 @@ import type { TargetCategory } from '../services/places';
 import { generateAISuggestions } from '../services/aiSuggestions';
 import { requestNotificationPermission } from '../services/notifications';
 import { syncDataWithCloud, getLastSyncedTime } from '../services/sync';
-import { useUser } from '../services/clerk';
+import { useUser, useAuth } from '../services/clerk';
 
 interface SettingsProps {
   profile: Profile;
@@ -63,6 +63,7 @@ const Settings: React.FC<SettingsProps> = ({
   isLocationSimulated
 }) => {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const [repName, setRepName] = useState<string>(profile.repName);
   const [searchRadius, setSearchRadius] = useState<number>(profile.searchRadiusKm);
   const [activeIndustries, setActiveIndustries] = useState<string[]>(profile.industryFilters);
@@ -465,18 +466,24 @@ const Settings: React.FC<SettingsProps> = ({
 
   const handleSyncNow = async () => {
     setSyncStatus('syncing');
-    const result = await syncDataWithCloud();
-    if (result.success) {
-      setSyncStatus('success');
-      setLastSynced(getLastSyncedTime());
-      if (result.pushed > 0 || result.pulled > 0) {
-        alert(`Cloud sync complete! ⬆️ Pushed ${result.pushed} records, ⬇️ Pulled ${result.pulled} updates.`);
+    try {
+      const token = await getToken({ template: 'supabase' });
+      const result = await syncDataWithCloud(token || undefined);
+      if (result.success) {
+        setSyncStatus('success');
+        setLastSynced(getLastSyncedTime());
+        if (result.pushed > 0 || result.pulled > 0) {
+          alert(`Cloud sync complete! ⬆️ Pushed ${result.pushed} records, ⬇️ Pulled ${result.pulled} updates.`);
+        } else {
+          alert('Cloud synchronization complete! All data is fully up to date.');
+        }
       } else {
-        alert('Cloud synchronization complete! All data is fully up to date.');
+        setSyncStatus('error');
+        alert(`Synchronization failed: ${result.error || 'Please check network connectivity.'}`);
       }
-    } else {
+    } catch (err: any) {
       setSyncStatus('error');
-      alert(`Synchronization failed: ${result.error || 'Please check network connectivity.'}`);
+      alert(`Synchronization failed: ${err.message || 'Authentication error.'}`);
     }
     setTimeout(() => setSyncStatus('idle'), 3000);
   };

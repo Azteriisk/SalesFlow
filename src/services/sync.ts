@@ -291,14 +291,14 @@ function rowToOrg(row: Record<string, unknown>): Organization {
 
 // ---- Main sync function ----
 
-export async function syncDataWithCloud(): Promise<SyncResult> {
+export async function syncDataWithCloud(clerkToken?: string): Promise<SyncResult> {
   if (!isSupabaseConfigured()) {
     console.warn('Supabase not configured. Simulating sync.');
     localStorage.setItem(LAST_SYNC_KEY, Date.now().toString());
     return { success: true, pushed: 0, pulled: 0 };
   }
 
-  const supabase = getSupabase();
+  const supabase = getSupabase(clerkToken);
   if (!supabase) {
     return { success: false, pushed: 0, pulled: 0, error: 'Supabase client not available' };
   }

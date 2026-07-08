@@ -83,3 +83,11 @@ export const OrganizationSwitcher: React.FC = () => {
 
 export const CreateOrganization: React.FC = () => null;
 export const OrganizationList: React.FC<Record<string, unknown>> = () => null;
+
+export const useAuth = () => {
+  return {
+    getToken: async () => 'mock_supabase_jwt_token',
+    isSignedIn: true,
+    userId: 'user_mock'
+  };
+};

@@ -25,3 +25,4 @@ export const useOrganization = (useMock ? MockClerk.useOrganization : RealClerk.
 export const OrganizationSwitcher = useMock ? MockClerk.OrganizationSwitcher : RealClerk.OrganizationSwitcher;
 export const CreateOrganization = useMock ? MockClerk.CreateOrganization : RealClerk.CreateOrganization;
 export const OrganizationList = useMock ? MockClerk.OrganizationList : RealClerk.OrganizationList;
+export const useAuth = (useMock ? MockClerk.useAuth : RealClerk.useAuth) as unknown as typeof RealClerk.useAuth;

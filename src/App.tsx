@@ -9,7 +9,7 @@ import {
   WifiOff,
   Building
 } from 'lucide-react';
-import { SignedIn, SignedOut, SignIn, UserButton, useUser } from './services/clerk';
+import { SignedIn, SignedOut, SignIn, UserButton, useUser, useAuth } from './services/clerk';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { dbService } from './services/db';
@@ -37,6 +37,7 @@ export type TabType = 'dashboard' | 'discover' | 'leads' | 'phoneblock' | 'compa
 
 const App: React.FC = () => {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const [dbInitialized, setDbInitialized] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -54,8 +55,10 @@ const App: React.FC = () => {
     const handleOnline = () => {
       setIsOffline(false);
       // Auto-sync offline changes with cloud when connection returns
-      syncDataWithCloud().then(result => {
-        if (result.success && result.pulled > 0) {
+      getToken({ template: 'supabase' }).then(token => {
+        return syncDataWithCloud(token || undefined);
+      }).then(result => {
+        if (result && result.success && (result.pushed > 0 || result.pulled > 0)) {
           console.log(`Auto-sync success: Pushed ${result.pushed}, Pulled ${result.pulled} updates.`);
         }
       }).catch(err => {
