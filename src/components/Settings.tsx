@@ -1618,7 +1618,7 @@ const Settings: React.FC<SettingsProps> = ({
       )}
 
       {/* 2.5 Personal Stretch Goals & Badges */}
-      <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <div id="personal-stretch-goals" className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid hsl(var(--border-muted))', paddingBottom: '0.5rem' }}>
           <Compass style={{ width: '18px', height: '18px', color: 'hsl(var(--primary))' }} />
           <span style={{ fontFamily: 'Outfit', fontWeight: 600 }}>Personal Stretch Goals & Badges</span>

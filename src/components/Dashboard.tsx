@@ -8,7 +8,8 @@ import {
   TrendingUp, 
   Activity,
   DollarSign,
-  Award
+  Award,
+  Plus
 } from 'lucide-react';
 import { 
   dbService, 
@@ -578,6 +579,32 @@ const Dashboard: React.FC<DashboardProps> = ({ location, profile, setActiveTab }
           <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '1rem' }}>
             Achievement Badges
           </span>
+          <button 
+            onClick={() => {
+              setActiveTab('settings');
+              setTimeout(() => {
+                const element = document.getElementById('personal-stretch-goals');
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }, 100);
+            }}
+            style={{ 
+              background: 'hsl(var(--bg-secondary))', 
+              border: '1px solid hsl(var(--border-muted))', 
+              borderRadius: '4px', 
+              padding: '0.25rem',
+              color: 'hsl(var(--text-secondary))',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '0.5rem'
+            }}
+            title="Create Custom Badge"
+          >
+            <Plus style={{ width: '12px', height: '12px' }} />
+          </button>
           <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))', marginLeft: 'auto' }}>
             {badges.filter(b => b.unlocked).length} / {badges.length} Unlocked
           </span>
