@@ -1007,256 +1007,34 @@ export class SalesFlowDB {
 
     const visits = allVisits.filter(v => filterByTime(v.timestamp));
     const calls = allCalls.filter(c => filterByTime(c.timestamp));
-    
-    // For leads, we'll check addedAt or just lifetime based on requirement
-    // Usually dealmaker metrics are based on when it was sold, but we'll approximate with `addedAt` for this mockup if needed,
-    // or just use visits/calls timestamps. Let's use `addedAt` for sold leads.
     const leads = allLeads.filter(l => filterByTime(l.addedAt));
-
-    // Weekly metrics
-    const weeklyVisitsCount = visits.length;
-    const weeklyCallsCount = calls.length;
-    const weeklyHustlerUnlocked = weeklyVisitsCount >= 20;
-    const weeklyDialerUnlocked = weeklyCallsCount >= 100;
-
-    // Daily peaks (mostly relevant for lifetime/yearly, but we can compute it for the filtered data)
-    const visitsByDate: { [date: string]: number } = {};
-    visits.forEach(v => {
-      const dateStr = new Date(v.timestamp).toISOString().split('T')[0];
-      visitsByDate[dateStr] = (visitsByDate[dateStr] || 0) + 1;
-    });
-    const maxVisitsInADay = Object.keys(visitsByDate).length > 0 ? Math.max(...Object.values(visitsByDate)) : 0;
-    const pacesetterUnlocked = maxVisitsInADay >= 10;
     
-    const callsByDate: { [date: string]: number } = {};
-    calls.forEach(c => {
-      const dateStr = new Date(c.timestamp).toISOString().split('T')[0];
-      callsByDate[dateStr] = (callsByDate[dateStr] || 0) + 1;
-    });
-    const maxCallsInADay = Object.keys(callsByDate).length > 0 ? Math.max(...Object.values(callsByDate)) : 0;
-    const callCrusaderUnlocked = maxCallsInADay >= 50;
-
-    // Secured first sold account
-    const soldLeads = leads.filter(l => l.status === 'sold');
-    const closerUnlocked = soldLeads.length >= 1;
-    
-    // Total Sales Value
-    const totalSalesValue = soldLeads.reduce((sum, l) => sum + (l.dealValue || 0), 0);
-    const dealmakerUnlocked = totalSalesValue >= 5000;
-    
-    // Scout
+    const totalSalesValue = leads.filter(l => l.status === 'sold').reduce((sum, l) => sum + (l.dealValue || 0), 0);
     const totalLeadsCount = leads.length;
-    const scoutUnlocked = totalLeadsCount >= 100;
-    
-    // Targets
-    const summitTarget = profile.quarterlySummitTarget || 9000;
-    const summitUnlocked = totalSalesValue >= summitTarget;
-    
-    const presClubTarget = profile.quarterlyPresidentsClubTarget || 12000;
-    const presClubUnlocked = totalSalesValue >= presClubTarget;
 
-    const yearlyTarget = presClubTarget * 4;
-    const yearlyUnlocked = totalSalesValue >= yearlyTarget;
-
-    // Realistic Metrics Calculations
-    // 1. Pipeline Builder (10 prospects added in a day)
-    const leadsByDate: { [date: string]: number } = {};
-    leads.forEach(l => {
-      const dateStr = new Date(l.addedAt).toISOString().split('T')[0];
-      leadsByDate[dateStr] = (leadsByDate[dateStr] || 0) + 1;
-    });
-    const maxLeadsAddedInADay = Object.keys(leadsByDate).length > 0 ? Math.max(...Object.values(leadsByDate)) : 0;
-    const pipelineBuilderUnlocked = maxLeadsAddedInADay >= 10;
-
-    // 2. Appointment Machine (5 appointments in a single week)
-    const weeklyAppts = visits.filter(v => v.outcome === 'appointment_set').length + calls.filter(c => c.outcome === 'appointment_set').length;
-    const apptMachineUnlocked = weeklyAppts >= 5;
-
-    // 3. Conversion Master (10 appointments overall - lifetime)
-    const lifetimeAppts = allVisits.filter(v => v.outcome === 'appointment_set').length + allCalls.filter(c => c.outcome === 'appointment_set').length;
-    const conversionMasterUnlocked = lifetimeAppts >= 10;
-
-    // 4. High Roller (Secure a single sale worth > $2,500)
-    const maxDealValue = soldLeads.length > 0 ? Math.max(...soldLeads.map(l => l.dealValue || 0)) : 0;
-    const highRollerUnlocked = maxDealValue >= 2500;
-
-    // 5. Gatekeeper Charmer (Log 10 visits/calls where a gatekeeper was successfully spoken with and logged)
-    const gatekeeperVisits = visits.filter(v => v.spokeWith && !v.isDecisionMaker).length;
-    const gatekeeperCalls = calls.filter(c => c.outcome === 'gatekeeper_blocked').length;
-    const totalGatekeepersSpoken = gatekeeperVisits + gatekeeperCalls;
-    const gatekeeperCharmerUnlocked = totalGatekeepersSpoken >= 10;
-
-    // 6. Tenacity Award (Follow up/visit the same lead 3+ times before locking in outcome)
-    const interactionsByLead: { [leadId: string]: number } = {};
-    allVisits.forEach(v => {
-      interactionsByLead[v.leadId] = (interactionsByLead[v.leadId] || 0) + 1;
-    });
-    allCalls.forEach(c => {
-      interactionsByLead[c.leadId] = (interactionsByLead[c.leadId] || 0) + 1;
-    });
-    const maxInteractionsOnALead = Object.keys(interactionsByLead).length > 0 ? Math.max(...Object.values(interactionsByLead)) : 0;
-    const tenacityAwardUnlocked = maxInteractionsOnALead >= 3;
+    // Default badges (only 2 in lifetime section)
+    const hasActivity = (allVisits.length + allCalls.length + allLeads.length) >= 1;
+    const hasSale = allLeads.some(l => l.status === 'sold');
 
     const badges: AchievementBadge[] = [
       {
-        id: 'weekly_hustler',
-        title: 'Weekly Hustler',
-        description: 'Complete 20 visits in a single week',
-        icon: '🚀',
-        unlocked: weeklyHustlerUnlocked,
-        progressText: `${weeklyVisitsCount}/20 visits`,
-        progressPercent: Math.min(100, Math.round((weeklyVisitsCount / 20) * 100)),
-        timeframe: 'weekly'
-      },
-      {
-        id: 'weekly_dialer',
-        title: 'Weekly Dialer',
-        description: 'Make 100 calls in a single week',
-        icon: '📱',
-        unlocked: weeklyDialerUnlocked,
-        progressText: `${weeklyCallsCount}/100 calls`,
-        progressPercent: Math.min(100, Math.round((weeklyCallsCount / 100) * 100)),
-        timeframe: 'weekly'
-      },
-      {
-        id: 'pacesetter',
-        title: 'Pacesetter',
-        description: 'Complete 10 On-Site Visits in a single day',
-        icon: '🏃',
-        unlocked: pacesetterUnlocked,
-        progressText: `${maxVisitsInADay}/10 visits`,
-        progressPercent: Math.min(100, Math.round((maxVisitsInADay / 10) * 100)),
+        id: 'getting_started',
+        title: 'Getting Started',
+        description: 'Log your first activity in SalesFlow',
+        icon: '🌱',
+        unlocked: hasActivity,
+        progressText: hasActivity ? 'Unlocked!' : '0/1 activity',
+        progressPercent: hasActivity ? 100 : 0,
         timeframe: 'lifetime'
       },
       {
-        id: 'call_crusader',
-        title: 'Cold Call Crusader',
-        description: 'Log 50 phone calls in a single day',
-        icon: '📞',
-        unlocked: callCrusaderUnlocked,
-        progressText: `${maxCallsInADay}/50 calls`,
-        progressPercent: Math.min(100, Math.round((maxCallsInADay / 50) * 100)),
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'closer',
-        title: 'Closer',
-        description: 'Secure your first Sold account',
+        id: 'deal_closer',
+        title: 'Deal Closer',
+        description: 'Close your first sale successfully',
         icon: '🤝',
-        unlocked: closerUnlocked,
-        progressText: closerUnlocked ? 'Unlocked!' : '0/1 sold',
-        progressPercent: closerUnlocked ? 100 : 0,
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'dealmaker_elite',
-        title: 'Dealmaker Elite',
-        description: 'Reach $5,000 in total sales revenue',
-        icon: '💎',
-        unlocked: dealmakerUnlocked,
-        progressText: `$${totalSalesValue.toLocaleString()}/$5,000`,
-        progressPercent: Math.min(100, Math.round((totalSalesValue / 5000) * 100)),
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'radar_scout',
-        title: 'Radar Scout',
-        description: 'Add 100 prospects to your pipeline',
-        icon: '📡',
-        unlocked: scoutUnlocked,
-        progressText: `${totalLeadsCount}/100 prospects`,
-        progressPercent: Math.min(100, Math.round((totalLeadsCount / 100) * 100)),
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'summit_achiever',
-        title: 'Summit Club',
-        description: 'Exceed the quarterly Summit sales target',
-        icon: '🏆',
-        unlocked: summitUnlocked,
-        progressText: `$${totalSalesValue.toLocaleString()}/$${summitTarget.toLocaleString()}`,
-        progressPercent: Math.min(100, Math.round((totalSalesValue / summitTarget) * 100)),
-        timeframe: 'quarterly'
-      },
-      {
-        id: 'presidents_club',
-        title: 'Presidents Club',
-        description: 'Exceed the quarterly Presidents Club sales target',
-        icon: '👑',
-        unlocked: presClubUnlocked,
-        progressText: `$${totalSalesValue.toLocaleString()}/$${presClubTarget.toLocaleString()}`,
-        progressPercent: Math.min(100, Math.round((totalSalesValue / presClubTarget) * 100)),
-        timeframe: 'quarterly'
-      },
-      {
-        id: 'yearly_titan',
-        title: 'Titan of the Year',
-        description: 'Exceed the yearly sales target',
-        icon: '🌍',
-        unlocked: yearlyUnlocked,
-        progressText: `$${totalSalesValue.toLocaleString()}/$${yearlyTarget.toLocaleString()}`,
-        progressPercent: Math.min(100, Math.round((totalSalesValue / yearlyTarget) * 100)),
-        timeframe: 'yearly'
-      },
-      // New Realistic Achievements
-      {
-        id: 'pipeline_builder',
-        title: 'Pipeline Builder',
-        description: 'Add 10 new prospects in a single day',
-        icon: '🏗️',
-        unlocked: pipelineBuilderUnlocked,
-        progressText: `${maxLeadsAddedInADay}/10 prospects`,
-        progressPercent: Math.min(100, Math.round((maxLeadsAddedInADay / 10) * 100)),
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'appt_machine',
-        title: 'Appointment Machine',
-        description: 'Book 5 appointments in a single week',
-        icon: '📆',
-        unlocked: apptMachineUnlocked,
-        progressText: `${weeklyAppts}/5 appointments`,
-        progressPercent: Math.min(100, Math.round((weeklyAppts / 5) * 100)),
-        timeframe: 'weekly'
-      },
-      {
-        id: 'conversion_master',
-        title: 'Conversion Master',
-        description: 'Book 10 appointments overall',
-        icon: '🎓',
-        unlocked: conversionMasterUnlocked,
-        progressText: `${lifetimeAppts}/10 appointments`,
-        progressPercent: Math.min(100, Math.round((lifetimeAppts / 10) * 100)),
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'high_roller',
-        title: 'High Roller',
-        description: 'Secure a single sale worth > $2,500',
-        icon: '💰',
-        unlocked: highRollerUnlocked,
-        progressText: highRollerUnlocked ? `Unlocked ($${maxDealValue.toLocaleString()})` : '0/1 sale',
-        progressPercent: highRollerUnlocked ? 100 : 0,
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'gk_charmer',
-        title: 'Gatekeeper Charmer',
-        description: 'Log 10 interactions successfully speaking with gatekeepers',
-        icon: '🔑',
-        unlocked: gatekeeperCharmerUnlocked,
-        progressText: `${totalGatekeepersSpoken}/10 gatekeepers`,
-        progressPercent: Math.min(100, Math.round((totalGatekeepersSpoken / 10) * 100)),
-        timeframe: 'lifetime'
-      },
-      {
-        id: 'tenacity_award',
-        title: 'Tenacity Award',
-        description: 'Log 3 or more interactions (visits/calls) on a single prospect',
-        icon: '🦾',
-        unlocked: tenacityAwardUnlocked,
-        progressText: `${maxInteractionsOnALead}/3 interactions`,
-        progressPercent: Math.min(100, Math.round((maxInteractionsOnALead / 3) * 100)),
+        unlocked: hasSale,
+        progressText: hasSale ? 'Unlocked!' : '0/1 sale',
+        progressPercent: hasSale ? 100 : 0,
         timeframe: 'lifetime'
       }
     ];
