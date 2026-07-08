@@ -20,6 +20,7 @@ export interface Profile {
   companyName?: string; // User company name
   categories?: TargetCategory[]; // Dynamic target categories list
   callingScript?: string; // Custom script for making phone calls
+  personalAchievements?: CustomAchievement[]; // Personal stretch achievements
 }
 
 export interface CustomAchievement {
@@ -61,6 +62,7 @@ export interface AchievementBadge {
   progressPercent: number;
   timeframe: 'weekly' | 'quarterly' | 'yearly' | 'lifetime';
   isCustom?: boolean;
+  isPersonal?: boolean;
 }
 
 export interface TodoItem {
@@ -1091,6 +1093,54 @@ export class SalesFlowDB {
       } catch (err) {
         console.warn('Failed to resolve custom achievements', err);
       }
+    }
+
+    // Check and append personal custom achievements
+    if (profile.personalAchievements && profile.personalAchievements.length > 0) {
+      profile.personalAchievements.forEach(ach => {
+        let unlocked = false;
+        let progressValue = 0;
+        const targetValue = ach.targetValue;
+        
+        // Check metric
+        if (ach.targetMetric === 'visits') {
+          progressValue = visits.length;
+          unlocked = progressValue >= targetValue;
+        } else if (ach.targetMetric === 'calls') {
+          progressValue = calls.length;
+          unlocked = progressValue >= targetValue;
+        } else if (ach.targetMetric === 'revenue') {
+          progressValue = totalSalesValue;
+          unlocked = progressValue >= targetValue;
+        } else if (ach.targetMetric === 'prospects') {
+          progressValue = totalLeadsCount;
+          unlocked = progressValue >= targetValue;
+        } else if (ach.targetMetric === 'appointments') {
+          const apptsCount = visits.filter(v => v.outcome === 'appointment_set').length + 
+                              calls.filter(c => c.outcome === 'appointment_set').length;
+          progressValue = apptsCount;
+          unlocked = progressValue >= targetValue;
+        }
+
+        const progressPercent = Math.min(100, Math.round((progressValue / targetValue) * 100));
+        const isRevenue = ach.targetMetric === 'revenue';
+        const progressText = isRevenue
+          ? `$${progressValue.toLocaleString()}/$${targetValue.toLocaleString()}`
+          : `${progressValue}/${targetValue} ${ach.targetMetric}`;
+
+        badges.push({
+          id: ach.id,
+          title: ach.title,
+          description: ach.description,
+          icon: ach.icon || '🎯',
+          unlocked,
+          progressText,
+          progressPercent,
+          timeframe: ach.timeframe,
+          isCustom: true,
+          isPersonal: true
+        });
+      });
     }
 
     // Always return lifetime badges if timeframe is lifetime, otherwise return only badges matching the timeframe

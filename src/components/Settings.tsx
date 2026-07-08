@@ -22,7 +22,7 @@ import {
   getWeekId,
   getMonday
 } from '../services/db';
-import type { Profile, WeeklyPlan, Lead } from '../services/db';
+import type { Profile, WeeklyPlan, Lead, CustomAchievement } from '../services/db';
 import { INDUSTRY_CATEGORIES } from '../services/places';
 import type { TargetCategory } from '../services/places';
 import { generateAISuggestions } from '../services/aiSuggestions';
@@ -99,6 +99,15 @@ const Settings: React.FC<SettingsProps> = ({
   // Simulated location state
   const [simLat, setSimLat] = useState<string>(location.latitude.toFixed(6));
   const [simLng, setSimLng] = useState<string>(location.longitude.toFixed(6));
+
+  // Personal achievements state
+  const [personalAchievements, setPersonalAchievements] = useState<CustomAchievement[]>(profile.personalAchievements || []);
+  const [persTitle, setPersTitle] = useState<string>('');
+  const [persDesc, setPersDesc] = useState<string>('');
+  const [persIcon, setPersIcon] = useState<string>('🎯');
+  const [persMetric, setPersMetric] = useState<'visits' | 'calls' | 'revenue' | 'appointments' | 'prospects'>('visits');
+  const [persValue, setPersValue] = useState<number>(10);
+  const [persTimeframe, setPersTimeframe] = useState<'weekly' | 'quarterly' | 'yearly' | 'lifetime'>('weekly');
 
   // Reports Form State
   const [reportStart, setReportStart] = useState<string>(
@@ -413,7 +422,8 @@ const Settings: React.FC<SettingsProps> = ({
       jobType,
       companyName,
       categories,
-      callingScript
+      callingScript,
+      personalAchievements
     };
     onProfileUpdate(updated);
     alert('Profile settings saved successfully.');
@@ -477,6 +487,54 @@ const Settings: React.FC<SettingsProps> = ({
     } else {
       setActiveIndustries([...activeIndustries, id]);
     }
+  };
+
+  const handleAddPersonalAchievement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!persTitle.trim() || !persDesc.trim()) return;
+
+    const newAch: CustomAchievement = {
+      id: `personal_ach_${Date.now()}`,
+      title: persTitle.trim(),
+      description: persDesc.trim(),
+      icon: persIcon,
+      targetMetric: persMetric,
+      targetValue: persValue,
+      timeframe: persTimeframe,
+      createdAt: Date.now()
+    };
+
+    const updatedAchievements = [...personalAchievements, newAch];
+    setPersonalAchievements(updatedAchievements);
+
+    const updatedProfile: Profile = {
+      ...profile,
+      personalAchievements: updatedAchievements
+    };
+    onProfileUpdate(updatedProfile);
+
+    setPersTitle('');
+    setPersDesc('');
+    setPersIcon('🎯');
+    setPersMetric('visits');
+    setPersValue(10);
+    setPersTimeframe('weekly');
+
+    alert('Personal stretch goal added successfully!');
+  };
+
+  const handleDeletePersonalAchievement = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this personal achievement?')) return;
+
+    const updatedAchievements = personalAchievements.filter(ach => ach.id !== id);
+    setPersonalAchievements(updatedAchievements);
+
+    const updatedProfile: Profile = {
+      ...profile,
+      personalAchievements: updatedAchievements
+    };
+    onProfileUpdate(updatedProfile);
+    alert('Personal achievement deleted.');
   };
 
   const handleSavePlanner = async () => {
@@ -1558,6 +1616,173 @@ const Settings: React.FC<SettingsProps> = ({
           </div>
         </div>
       )}
+
+      {/* 2.5 Personal Stretch Goals & Badges */}
+      <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid hsl(var(--border-muted))', paddingBottom: '0.5rem' }}>
+          <Compass style={{ width: '18px', height: '18px', color: 'hsl(var(--primary))' }} />
+          <span style={{ fontFamily: 'Outfit', fontWeight: 600 }}>Personal Stretch Goals & Badges</span>
+        </div>
+        
+        <p style={{ fontSize: '0.85rem', color: 'hsl(var(--text-secondary))', lineHeight: '1.4' }}>
+          Set your own personal milestones and stretch goals. When you hit the targets you define, you will earn your custom badges!
+        </p>
+
+        {/* Existing Personal Achievements */}
+        {personalAchievements.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--text-primary))' }}>Your Custom Badges</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+              {personalAchievements.map((ach) => (
+                <div 
+                  key={ach.id} 
+                  style={{ 
+                    background: 'hsl(var(--bg-secondary))', 
+                    border: '1px solid hsl(var(--border-muted))', 
+                    borderRadius: '8px', 
+                    padding: '0.75rem', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: '1.5rem' }}>{ach.icon || '🎯'}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--text-primary))' }}>{ach.title}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{ach.description}</span>
+                      <span style={{ fontSize: '0.72rem', color: 'hsl(var(--primary))', fontWeight: 500, marginTop: '0.2rem' }}>
+                        Target: {ach.targetValue} {ach.targetMetric} ({ach.timeframe})
+                      </span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleDeletePersonalAchievement(ach.id)} 
+                    style={{ background: 'none', border: 'none', color: 'hsl(var(--danger))', cursor: 'pointer', padding: '0.25rem' }}
+                    title="Delete badge"
+                  >
+                    <Trash2 style={{ width: '15px', height: '15px' }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Add New Achievement Form */}
+        <form onSubmit={handleAddPersonalAchievement} style={{ background: 'hsla(var(--bg-secondary) / 0.5)', border: '1px dashed hsl(var(--border-muted))', borderRadius: '8px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--text-primary))' }}>Create Custom Badge</span>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>Badge Title</label>
+              <input 
+                type="text" 
+                placeholder="e.g. Century Dialer" 
+                value={persTitle} 
+                onChange={e => setPersTitle(e.target.value)} 
+                required 
+                style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.5rem', color: 'hsl(var(--text-primary))', fontSize: '0.85rem' }}
+              />
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>Badge Description</label>
+              <input 
+                type="text" 
+                placeholder="e.g. Make 100 calls this week" 
+                value={persDesc} 
+                onChange={e => setPersDesc(e.target.value)} 
+                required 
+                style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.5rem', color: 'hsl(var(--text-primary))', fontSize: '0.85rem' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>Icon Emoji</label>
+              <select 
+                value={persIcon} 
+                onChange={e => setPersIcon(e.target.value)} 
+                style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.5rem', color: 'hsl(var(--text-primary))', fontSize: '0.85rem' }}
+              >
+                <option value="🎯">🎯 Target</option>
+                <option value="🚀">🚀 Rocket</option>
+                <option value="💎">💎 Diamond</option>
+                <option value="🔥">🔥 Fire</option>
+                <option value="👑">👑 Crown</option>
+                <option value="📱">📱 Phone</option>
+                <option value="🏃">🏃 Runner</option>
+                <option value="🤝">🤝 Deal</option>
+                <option value="🏆">🏆 Trophy</option>
+                <option value="🧠">🧠 Brain</option>
+                <option value="⚡">⚡ Bolt</option>
+                <option value="⭐">⭐ Star</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>Target Metric</label>
+              <select 
+                value={persMetric} 
+                onChange={e => setPersMetric(e.target.value as any)} 
+                style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.5rem', color: 'hsl(var(--text-primary))', fontSize: '0.85rem' }}
+              >
+                <option value="visits">On-Site Visits</option>
+                <option value="calls">Phone Calls</option>
+                <option value="appointments">Appointments Set</option>
+                <option value="revenue">Closed Revenue ($)</option>
+                <option value="prospects">Added Prospects</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>Target Value</label>
+              <input 
+                type="number" 
+                min="1" 
+                value={persValue} 
+                onChange={e => setPersValue(Number(e.target.value))} 
+                required 
+                style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.5rem', color: 'hsl(var(--text-primary))', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary))' }}>Timeframe</label>
+              <select 
+                value={persTimeframe} 
+                onChange={e => setPersTimeframe(e.target.value as any)} 
+                style={{ background: 'hsl(var(--bg-primary))', border: '1px solid hsl(var(--border-muted))', borderRadius: '6px', padding: '0.5rem', color: 'hsl(var(--text-primary))', fontSize: '0.85rem' }}
+              >
+                <option value="weekly">Weekly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+                <option value="lifetime">Lifetime</option>
+              </select>
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            className="btn-primary" 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              gap: '0.3rem', 
+              cursor: 'pointer',
+              marginTop: '0.5rem',
+              alignSelf: 'flex-start'
+            }}
+          >
+            <Plus style={{ width: '16px', height: '16px' }} />
+            Add Stretch Badge
+          </button>
+        </form>
+      </div>
 
       {/* 3. Cloud Sync Panel */}
       <div className="glass-panel" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

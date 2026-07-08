@@ -14,6 +14,7 @@ import {
 import { useOrganization, useUser, OrganizationSwitcher, CreateOrganization, OrganizationList } from '../services/clerk';
 import { INDUSTRY_CATEGORIES } from '../services/places';
 import { dbService } from '../services/db';
+import { getSupabase } from '../services/supabase';
 import type { Profile, Organization } from '../services/db';
 
 interface CompanyManagementProps {
@@ -47,7 +48,66 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
   const [companyIndustries, setCompanyIndustries] = useState<string[]>([]);
   const [userOsvCount, setUserOsvCount] = useState<number>(0);
 
+  const [memberProfiles, setMemberProfiles] = useState<any[]>([]);
+
   const isAdmin = membership?.role === 'org:admin';
+
+  // Load member profiles from Supabase for admin management
+  useEffect(() => {
+    if (!organization) {
+      setMemberProfiles([]);
+      return;
+    }
+
+    const loadMemberProfiles = async () => {
+      const supabase = getSupabase();
+      if (!supabase) return;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('organization_id', organization.id);
+
+      if (!error && data) {
+        setMemberProfiles(data);
+      }
+    };
+
+    loadMemberProfiles();
+  }, [organization]);
+
+  const handleRemovePersonalAchievement = async (memberUserId: string, achievementId: string) => {
+    if (!confirm('Are you sure you want to remove this personal achievement from this rep?')) return;
+
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    // Find the member profile
+    const memberProf = memberProfiles.find(p => p.clerk_user_id === memberUserId);
+    if (!memberProf) return;
+
+    const achievements = memberProf.personal_achievements ? 
+      (typeof memberProf.personal_achievements === 'string' ? JSON.parse(memberProf.personal_achievements) : memberProf.personal_achievements) : [];
+    const updated = achievements.filter((ach: any) => ach.id !== achievementId);
+
+    // Update remote profile
+    const { error } = await supabase
+      .from('profiles')
+      .update({ 
+        personal_achievements: JSON.stringify(updated),
+        updated_at: new Date().toISOString()
+      })
+      .eq('clerk_user_id', memberUserId);
+
+    if (error) {
+      console.error('Failed to update remote profile:', error.message);
+      alert('Failed to remove achievement: ' + error.message);
+    } else {
+      // Update local state
+      setMemberProfiles(prev => prev.map(p => p.clerk_user_id === memberUserId ? { ...p, personal_achievements: updated } : p));
+      alert('Achievement removed from rep\'s profile successfully.');
+    }
+  };
 
   // Sync active Clerk Organization to Local IndexedDB config
   useEffect(() => {
@@ -338,19 +398,73 @@ const CompanyManagement: React.FC<CompanyManagementProps> = ({ profile, onProfil
               const roleName = mem.role === 'org:admin' ? 'Manager / Admin' : 'Sales Rep';
               const initials = [firstName.charAt(0), lastName.charAt(0)].filter(Boolean).join('') || '?';
               const imageUrl = publicData?.imageUrl;
+              const matchingProfile = memberProfiles.find(p => p.clerk_user_id === publicData?.userId);
+              const achievements = matchingProfile?.personal_achievements ? 
+                (typeof matchingProfile.personal_achievements === 'string' ? JSON.parse(matchingProfile.personal_achievements) : matchingProfile.personal_achievements) : [];
+
               return (
-                <div key={mem.id} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem', background: 'hsl(var(--bg-primary))', borderRadius: '8px', border: '1px solid hsl(var(--border-muted))' }}>
-                  {imageUrl ? (
-                    <img src={imageUrl} alt={name} style={{ width: '38px', height: '38px', borderRadius: '50%', border: '1px solid hsl(var(--border-muted))' }} />
-                  ) : (
-                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'hsl(var(--secondary) / 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--secondary))', fontWeight: 600, fontSize: '0.85rem' }}>
-                      {initials}
+                <div key={mem.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.75rem', background: 'hsl(var(--bg-primary))', borderRadius: '8px', border: '1px solid hsl(var(--border-muted))' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    {imageUrl ? (
+                      <img src={imageUrl} alt={name} style={{ width: '38px', height: '38px', borderRadius: '50%', border: '1px solid hsl(var(--border-muted))' }} />
+                    ) : (
+                      <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'hsl(var(--secondary) / 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--secondary))', fontWeight: 600, fontSize: '0.85rem' }}>
+                        {initials}
+                      </div>
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'hsl(var(--text-primary))' }}>{name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{roleName}</div>
+                    </div>
+                  </div>
+
+                  {/* Stretch Achievements Roster */}
+                  {achievements.length > 0 && (
+                    <div style={{ borderTop: '1px solid hsl(var(--border-muted))', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'hsl(var(--text-secondary))', marginBottom: '0.35rem' }}>Personal Stretch Badges:</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {achievements.map((ach: any) => (
+                          <div 
+                            key={ach.id} 
+                            style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '0.3rem', 
+                              background: 'hsl(var(--bg-secondary))', 
+                              border: '1px solid hsl(var(--border-muted))', 
+                              borderRadius: '4px', 
+                              padding: '0.25rem 0.4rem',
+                              fontSize: '0.72rem'
+                            }}
+                          >
+                            <span>{ach.icon || '🎯'}</span>
+                            <span style={{ fontWeight: 500, color: 'hsl(var(--text-primary))' }}>{ach.title}</span>
+                            <span style={{ color: 'hsl(var(--text-muted))', fontSize: '0.65rem' }}>({ach.targetValue} {ach.targetMetric})</span>
+                            
+                            {isAdmin && (
+                              <button 
+                                onClick={() => handleRemovePersonalAchievement(publicData?.userId || '', ach.id)}
+                                style={{ 
+                                  background: 'none', 
+                                  border: 'none', 
+                                  color: 'hsl(var(--danger))', 
+                                  cursor: 'pointer', 
+                                  padding: '0 0 0 0.2rem',
+                                  fontSize: '0.85rem',
+                                  lineHeight: 1,
+                                  display: 'flex',
+                                  alignItems: 'center'
+                                }}
+                                title="Remove personal achievement"
+                              >
+                                &times;
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'hsl(var(--text-primary))' }}>{name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{roleName}</div>
-                  </div>
                 </div>
               );
             })}

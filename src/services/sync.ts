@@ -185,6 +185,7 @@ function profileToRow(profile: Profile) {
     company_name: profile.companyName || null,
     categories: JSON.stringify(profile.categories || []),
     calling_script: profile.callingScript || null,
+    personal_achievements: JSON.stringify(profile.personalAchievements || []),
     updated_at: new Date().toISOString(),
   };
 }
@@ -207,6 +208,7 @@ function rowToProfile(row: Record<string, unknown>): Partial<Profile> {
     companyName: (row.company_name as string) || undefined,
     categories: typeof row.categories === 'string' ? JSON.parse(row.categories) : (row.categories as Profile['categories']),
     callingScript: (row.calling_script as string) || undefined,
+    personalAchievements: row.personal_achievements ? (typeof row.personal_achievements === 'string' ? JSON.parse(row.personal_achievements) : row.personal_achievements as Profile['personalAchievements']) : [],
   };
 }
 
