@@ -1,5 +1,5 @@
 import { dbService, getWeekId } from './db';
-import type { Lead, Visit, Call, TodoItem, WeeklyPlan, Profile, Organization } from './db';
+import type { Lead, Visit, Call, TodoItem, WeeklyPlan, Profile, Organization, RecommendationDecision, EmailLog } from './db';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 
 const LAST_SYNC_KEY = 'salesflow_last_sync_timestamp';
@@ -164,6 +164,54 @@ function rowToWeeklyPlan(row: Record<string, unknown>): WeeklyPlan {
     id: row.id as string,
     startDate: row.start_date as number,
     targets: typeof row.targets === 'string' ? JSON.parse(row.targets) : row.targets as WeeklyPlan['targets'],
+  };
+}
+
+function decisionToRow(decision: RecommendationDecision, clerkUserId: string) {
+  return {
+    place_id: decision.placeId,
+    clerk_user_id: clerkUserId,
+    status: decision.status,
+    decided_at: decision.decidedAt,
+    category: decision.category || null,
+    rating: decision.rating || null,
+    user_ratings_total: decision.userRatingsTotal || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function rowToDecision(row: Record<string, unknown>): RecommendationDecision {
+  return {
+    placeId: row.place_id as string,
+    status: row.status as RecommendationDecision['status'],
+    decidedAt: row.decided_at as number,
+    category: (row.category as string) || undefined,
+    rating: (row.rating as number) || undefined,
+    userRatingsTotal: (row.user_ratings_total as number) || undefined,
+  };
+}
+
+function emailToRow(email: EmailLog, clerkUserId: string) {
+  return {
+    id: email.id,
+    clerk_user_id: clerkUserId,
+    lead_id: email.leadId,
+    timestamp: email.timestamp,
+    subject: email.subject,
+    body: email.body,
+    outcome: email.outcome,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function rowToEmail(row: Record<string, unknown>): EmailLog {
+  return {
+    id: row.id as string,
+    leadId: row.lead_id as string,
+    timestamp: row.timestamp as number,
+    subject: row.subject as string,
+    body: row.body as string,
+    outcome: row.outcome as EmailLog['outcome'],
   };
 }
 
@@ -347,6 +395,30 @@ export async function syncDataWithCloud(): Promise<SyncResult> {
       else totalPushed++;
     }
 
+    // Push decisions
+    const allDecisions = await dbService.getAllDecisions();
+    if (allDecisions.length > 0) {
+      const decisionRows = allDecisions.map(d => decisionToRow(d, clerkUserId));
+      for (let i = 0; i < decisionRows.length; i += 100) {
+        const chunk = decisionRows.slice(i, i + 100);
+        const { error: decisionsErr } = await supabase.from('decisions').upsert(chunk, { onConflict: 'place_id,clerk_user_id' });
+        if (decisionsErr) console.warn('[Sync] Decisions push error:', decisionsErr.message);
+        else totalPushed += chunk.length;
+      }
+    }
+
+    // Push emails
+    const allEmails = await dbService.getAllEmails();
+    if (allEmails.length > 0) {
+      const emailRows = allEmails.map(e => emailToRow(e, clerkUserId));
+      for (let i = 0; i < emailRows.length; i += 100) {
+        const chunk = emailRows.slice(i, i + 100);
+        const { error: emailsErr } = await supabase.from('emails').upsert(chunk, { onConflict: 'id,clerk_user_id' });
+        if (emailsErr) console.warn('[Sync] Emails push error:', emailsErr.message);
+        else totalPushed += chunk.length;
+      }
+    }
+
     console.log(`[Sync] Push complete: ${totalPushed} records uploaded.`);
 
     // ---- PULL PHASE: Download newer records from Supabase ----
@@ -422,6 +494,36 @@ export async function syncDataWithCloud(): Promise<SyncResult> {
       for (const row of remotePlans) {
         const plan = rowToWeeklyPlan(row);
         await dbService.saveWeeklyPlan(plan);
+        totalPulled++;
+      }
+    }
+
+    // Pull decisions
+    const { data: remoteDecisions } = await supabase
+      .from('decisions')
+      .select('*')
+      .eq('clerk_user_id', clerkUserId)
+      .gt('updated_at', lastSyncDate);
+
+    if (remoteDecisions && remoteDecisions.length > 0) {
+      for (const row of remoteDecisions) {
+        const decision = rowToDecision(row);
+        await dbService.saveDecision(decision);
+        totalPulled++;
+      }
+    }
+
+    // Pull emails
+    const { data: remoteEmails } = await supabase
+      .from('emails')
+      .select('*')
+      .eq('clerk_user_id', clerkUserId)
+      .gt('updated_at', lastSyncDate);
+
+    if (remoteEmails && remoteEmails.length > 0) {
+      for (const row of remoteEmails) {
+        const email = rowToEmail(row);
+        await dbService.addEmail(email);
         totalPulled++;
       }
     }
