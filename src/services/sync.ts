@@ -1,4 +1,4 @@
-import { dbService } from './db';
+import { dbService, getWeekId } from './db';
 import type { Lead, Visit, Call, TodoItem, WeeklyPlan, Profile, Organization } from './db';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 
@@ -327,7 +327,8 @@ export async function syncDataWithCloud(): Promise<SyncResult> {
     }
 
     // Push weekly plans
-    const currentPlan = await dbService.getWeeklyPlan();
+    const currentWeekId = getWeekId(new Date());
+    const currentPlan = await dbService.getWeeklyPlan(currentWeekId);
     if (currentPlan) {
       const planRow = weeklyPlanToRow(currentPlan, clerkUserId);
       const { error: planErr } = await supabase.from('weekly_plans').upsert(planRow, { onConflict: 'id,clerk_user_id' });
